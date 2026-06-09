@@ -1,28 +1,31 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  SafeAreaView,
-  TouchableOpacity,
-  StatusBar,
-  Platform,
-  Linking,
-  Dimensions,
-  Animated,
-} from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+    Animated,
+    Dimensions,
+    Linking,
+    Platform,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
 // Safely import MapView only on Native platforms
 let MapView: any = null;
 let Marker: any = null;
 let Polyline: any = null;
 if (Platform.OS !== 'web') {
-  const MapModule = require('react-native-maps');
-  MapView = MapModule.default;
-  Marker = MapModule.Marker;
-  Polyline = MapModule.Polyline;
+  try {
+    const MapModule = require('react-native-maps');
+    MapView = MapModule.default;
+    Marker = MapModule.Marker;
+    Polyline = MapModule.Polyline;
+  } catch (e) {
+    console.warn('Map module load failed', e);
+  }
 }
 
 const { width, height } = Dimensions.get('window');
@@ -33,74 +36,55 @@ export default function TrackingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   
-  // Default coordinates (Hanoi center) or passed coords
   const victimLat = params.lat ? parseFloat(params.lat as string) : 21.028511;
   const victimLng = params.lng ? parseFloat(params.lng as string) : 105.804817;
-  const accuracy = params.acc ? parseFloat(params.acc as string) : 10;
 
-  // States
   const [status, setStatus] = useState<CaseStatus>('PENDING');
-  const [eta, setEta] = useState<number>(0); // in minutes
+  const [eta, setEta] = useState<number>(0);
   const [ambulancePos, setAmbulancePos] = useState({
-    latitude: victimLat + 0.012, // Spawn ambulance 1.2km away
+    latitude: victimLat + 0.012,
     longitude: victimLng + 0.008,
   });
   
-  // Simulated animation values for Web fallback
+  const slideAnim = useRef(new Animated.Value(height * 0.4)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const ambProgress = useRef(new Animated.Value(0)).current;
 
-  // Heartbeat animation for status dot
   useEffect(() => {
+    // Pulse animation
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.2,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
+        Animated.timing(pulseAnim, { toValue: 1.5, duration: 1500, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
 
-  // Dispatch and Movement Simulation
-  useEffect(() => {
-    // Stage 1: PENDING (5 seconds)
-    // Stage 2: DISPATCHED (Ambulance moves towards victim, 15 seconds simulation)
-    // Stage 3: ARRIVED
-    
-    let moveInterval: any;
-    
+    // Slide up animation
+    Animated.spring(slideAnim, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 50,
+      friction: 8,
+    }).start();
+
+    // Simulate dispatch flow
     const dispatchTimeout = setTimeout(() => {
       setStatus('DISPATCHED');
-      setEta(8); // 8 minutes initial ETA
+      setEta(8);
       
-      const steps = 150; // Update every 100ms for 15s
+      const steps = 150;
       let currentStep = 0;
-      
-      // Starting point of ambulance
       const startLat = victimLat + 0.012;
       const startLng = victimLng + 0.008;
       
-      moveInterval = setInterval(() => {
+      const moveInterval = setInterval(() => {
         currentStep++;
         const progress = currentStep / steps;
         
-        // Linear interpolation towards victim location
-        const nextLat = startLat + (victimLat - startLat) * progress;
-        const nextLng = startLng + (victimLng - startLng) * progress;
-        
         setAmbulancePos({
-          latitude: nextLat,
-          longitude: nextLng,
+          latitude: startLat + (victimLat - startLat) * progress,
+          longitude: startLng + (victimLng - startLng) * progress,
         });
 
-        // Update ETA countdown based on progress
         const remainingEta = Math.ceil(8 * (1 - progress));
         setEta(remainingEta > 0 ? remainingEta : 1);
         
@@ -110,459 +94,321 @@ export default function TrackingScreen() {
           setEta(0);
         }
       }, 100);
-      
+
+      return () => clearInterval(moveInterval);
     }, 4000);
 
-    return () => {
-      clearTimeout(dispatchTimeout);
-      if (moveInterval) clearInterval(moveInterval);
-    };
-  }, [victimLat, victimLng]);
+    return () => clearTimeout(dispatchTimeout);
+  }, []);
 
-  const callHotline = () => {
-    Linking.openURL('tel:115').catch(() => {});
+  const getStatusColor = (s: CaseStatus) => {
+    if (status === s) return '#F04438';
+    if (status === 'ARRIVED' || (status === 'DISPATCHED' && s === 'PENDING')) return '#32D583';
+    return '#1F2A37';
   };
-
-  const getStatusDetails = () => {
-    switch (status) {
-      case 'PENDING':
-        return {
-          title: 'Đang Tìm Kiếm Xe Cứu Thương',
-          desc: 'Tín hiệu đã được truyền đi. Đang tính toán PostGIS để điều xe tối ưu nhất ở gần bạn...',
-          color: '#F04438',
-          icon: 'radio-outline',
-        };
-      case 'DISPATCHED':
-        return {
-          title: 'Xe Cứu Thương Đang Đến',
-          desc: 'Xe cứu thương biển số 29-A1 115.88 đã nhận lệnh. Đội y tá: Bác sĩ Lê Văn M, Tài xế Nguyễn Văn A.',
-          color: '#12B76A',
-          icon: 'navigate-circle-outline',
-        };
-      case 'ARRIVED':
-        return {
-          title: 'Xe Cứu Thương Đã Đến!',
-          desc: 'Kíp cấp cứu đã có mặt tại điểm hẹn. Vui lòng quan sát xung quanh và giữ liên lạc.',
-          color: '#32D583',
-          icon: 'checkmark-circle',
-        };
-    }
-  };
-
-  const statusDetails = getStatusDetails();
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0C0E12" />
-      <SafeAreaView style={styles.safeArea}>
-        
-        {/* Top Header */}
-        <View style={styles.topBar}>
-          <TouchableOpacity 
-            onPress={() => router.replace('/(citizen)/sos')} 
-            style={styles.topButton}
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      
+      <View style={styles.mapWrapper}>
+        {Platform.OS !== 'web' && MapView ? (
+          <MapView
+            style={styles.map}
+            initialRegion={{
+              latitude: (victimLat + ambulancePos.latitude) / 2,
+              longitude: (victimLng + ambulancePos.longitude) / 2,
+              latitudeDelta: 0.03,
+              longitudeDelta: 0.03,
+            }}
+            customMapStyle={darkMapStyle}
           >
-            <Ionicons name="close" size={24} color="#FFF" />
-          </TouchableOpacity>
-          <Text style={styles.screenTitle}>Theo Dõi Hành Trình</Text>
-          <TouchableOpacity onPress={callHotline} style={[styles.topButton, { backgroundColor: '#F04438' }]}>
-            <Ionicons name="call" size={18} color="#FFF" />
-          </TouchableOpacity>
-        </View>
+            <Marker coordinate={{ latitude: victimLat, longitude: victimLng }}>
+              <View style={styles.victimMarker}>
+                <Animated.View style={[styles.victimPing, { transform: [{ scale: pulseAnim }] }]} />
+                <View style={styles.victimDot} />
+              </View>
+            </Marker>
 
-        {/* Map View Section */}
-        <View style={styles.mapContainer}>
-          {Platform.OS !== 'web' && MapView ? (
-            <MapView
-              style={styles.map}
-              initialRegion={{
-                latitude: (victimLat + ambulancePos.latitude) / 2,
-                longitude: (victimLng + ambulancePos.longitude) / 2,
-                latitudeDelta: Math.abs(victimLat - ambulancePos.latitude) * 2.5 || 0.03,
-                longitudeDelta: Math.abs(victimLng - ambulancePos.longitude) * 2.5 || 0.03,
-              }}
-              theme="dark"
-            >
-              {/* Victim Marker */}
-              <Marker
-                coordinate={{ latitude: victimLat, longitude: victimLng }}
-                title="Vị trí của bạn"
-                description="Đang chờ cứu hộ"
-              >
-                <View style={styles.victimMarkerOutline}>
-                  <View style={styles.victimMarker} />
-                </View>
-              </Marker>
-
-              {/* Ambulance Marker */}
-              {status !== 'PENDING' && (
-                <Marker
-                  coordinate={ambulancePos}
-                  title="Xe Cứu Thương 115"
-                  description={`ETA: ${eta} phút`}
-                >
-                  <View style={styles.ambulanceMarker}>
-                    <FontAwesome5 name="ambulance" size={14} color="#FFF" />
+            {status !== 'PENDING' && (
+              <>
+                <Marker coordinate={ambulancePos} rotation={45}>
+                  <View style={styles.ambMarker}>
+                    <FontAwesome5 name="ambulance" size={12} color="#FFF" />
                   </View>
                 </Marker>
-              )}
-
-              {/* Route Polyline */}
-              {status !== 'PENDING' && (
                 <Polyline
-                  coordinates={[
-                    { latitude: ambulancePos.latitude, longitude: ambulancePos.longitude },
-                    { latitude: victimLat, longitude: victimLng }
-                  ]}
+                  coordinates={[ambulancePos, { latitude: victimLat, longitude: victimLng }]}
                   strokeColor="#F04438"
-                  strokeWidth={4}
-                  lineDashPattern={[5, 5]}
+                  strokeWidth={3}
+                  lineDashPattern={[1, 10]}
                 />
-              )}
-            </MapView>
-          ) : (
-            /* Web Fallback Interface (Mock Radar/Map UI) */
-            <View style={[styles.mapWebFallback, { backgroundColor: '#111622' }]}>
-              {/* Grid Lines */}
-              <View style={styles.gridLinesHorizontal} />
-              <View style={styles.gridLinesVertical} />
-              
-              {/* Radar Sweeper */}
-              {status === 'PENDING' && <View style={styles.radarSweeper} />}
-
-              {/* Victim Node */}
-              <View style={[styles.fallbackMarker, { top: '50%', left: '50%' }]}>
-                <Animated.View style={[styles.markerRing, { transform: [{ scale: pulseAnim }] }]} />
-                <View style={styles.markerDot} />
-                <Text style={styles.markerLabel}>BẠN (SOS)</Text>
-              </View>
-
-              {/* Ambulance Node */}
-              {status !== 'PENDING' && (
-                <View 
-                  style={[
-                    styles.fallbackMarker, 
-                    { 
-                      // Move top/left dynamically based on simulated coordinates
-                      top: `${50 + (ambulancePos.latitude - victimLat) * 3000}%`,
-                      left: `${50 + (ambulancePos.longitude - victimLng) * 3000}%`,
-                    }
-                  ]}
-                >
-                  <View style={[styles.markerDotAmbulance]}>
-                    <FontAwesome5 name="ambulance" size={10} color="#FFF" />
-                  </View>
-                  <Text style={[styles.markerLabel, { color: '#32D583' }]}>XE 115 ({eta}m)</Text>
-                </View>
-              )}
-
-              {status === 'PENDING' ? (
-                <Text style={styles.radarText}>ĐANG QUÉT VỊ TRÍ GẦN NHẤT BẰNG POSTGIS...</Text>
-              ) : (
-                <Text style={styles.radarText}>ĐÃ THIẾT LẬP KẾT NỐI REALTIME (WEBSOCKET)</Text>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* Bottom Status Card */}
-        <View style={styles.statusCard}>
-          {/* Status Indicator */}
-          <View style={styles.statusHeader}>
-            <View style={styles.statusTitleContainer}>
-              <Animated.View 
-                style={[
-                  styles.statusDot, 
-                  { 
-                    backgroundColor: statusDetails.color,
-                    transform: [{ scale: pulseAnim }]
-                  }
-                ]} 
-              />
-              <Text style={[styles.statusTitle, { color: statusDetails.color }]}>
-                {statusDetails.title}
-              </Text>
-            </View>
-            
-            {status === 'DISPATCHED' && (
-              <View style={styles.etaContainer}>
-                <Text style={styles.etaNumber}>{eta}</Text>
-                <Text style={styles.etaLabel}>PHÚT</Text>
-              </View>
+              </>
             )}
+          </MapView>
+        ) : (
+          <View style={styles.webMapPlaceholder}>
+            <MaterialCommunityIcons name="map-marker-radius" size={48} color="#1F2A37" />
+            <Text style={styles.webMapText}>Bản đồ đang hoạt động (Mobile Only)</Text>
           </View>
+        )}
+      </View>
 
-          {/* Description */}
-          <Text style={styles.statusDesc}>{statusDetails.desc}</Text>
+      <TouchableOpacity 
+        style={styles.backButton} 
+        onPress={() => router.replace('/(citizen)/sos')}
+      >
+        <Ionicons name="arrow-back" size={24} color="#FFF" />
+      </TouchableOpacity>
 
-          {/* Action Footer */}
-          <View style={styles.divider} />
-          
-          <View style={styles.infoRow}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>SỰ CỐ</Text>
-              <Text style={styles.infoValue}>Emergency #829</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>ĐỊNH VỊ GPS</Text>
-              <Text style={styles.infoValue}>
-                {victimLat.toFixed(5)}, {victimLng.toFixed(5)} (±{accuracy.toFixed(0)}m)
-              </Text>
-            </View>
+      <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnim }] }]}>
+        <View style={styles.sheetHandle} />
+        
+        <View style={styles.sheetHeader}>
+          <View>
+            <Text style={styles.etaLabel}>THỜI GIAN DỰ KIẾN</Text>
+            <Text style={styles.etaValue}>{status === 'PENDING' ? '--' : `${eta} PHÚT`}</Text>
           </View>
+          <TouchableOpacity onPress={() => Linking.openURL('tel:115')} style={styles.callFab}>
+            <Ionicons name="call" size={24} color="#FFF" />
+          </TouchableOpacity>
+        </View>
 
-          {status === 'ARRIVED' && (
-            <TouchableOpacity 
-              style={styles.doneButton} 
-              onPress={() => router.replace('/')}
-            >
-              <Text style={styles.doneButtonText}>QUAY LẠI TRANG CHỦ</Text>
-            </TouchableOpacity>
+        <View style={styles.timeline}>
+          <TimelineItem 
+            title="Đã gửi yêu cầu" 
+            time="Vừa xong" 
+            status={status === 'PENDING' ? 'active' : 'done'} 
+            color={getStatusColor('PENDING')}
+          />
+          <TimelineItem 
+            title="Xe cứu thương đang đến" 
+            time={status === 'DISPATCHED' ? 'Đang di chuyển' : ''} 
+            status={status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' ? 'done' : 'pending'} 
+            color={getStatusColor('DISPATCHED')}
+          />
+          <TimelineItem 
+            title="Đã đến hiện trường" 
+            time="" 
+            status={status === 'ARRIVED' ? 'active' : 'pending'} 
+            color={getStatusColor('ARRIVED')}
+            isLast
+          />
+        </View>
+
+        <View style={styles.driverInfo}>
+          <View style={styles.driverAvatar}>
+            <FontAwesome5 name="user-md" size={20} color="#98A2B3" />
+          </View>
+          <View style={styles.driverDetails}>
+            <Text style={styles.driverName}>{status === 'PENDING' ? 'Đang tìm xe...' : 'Bác sĩ Lê Văn M'}</Text>
+            <Text style={styles.vehicleInfo}>{status === 'PENDING' ? 'Hệ thống đang điều phối' : 'Xe 29-A1 115.88 • Đội 115 Đống Đa'}</Text>
+          </View>
+          {status !== 'PENDING' && (
+            <MaterialCommunityIcons name="message-text" size={24} color="#F04438" />
           )}
         </View>
-      </SafeAreaView>
+      </Animated.View>
     </View>
   );
 }
 
+const TimelineItem = ({ title, time, status, color, isLast }: any) => (
+  <View style={styles.timelineItem}>
+    <View style={styles.timelineLeft}>
+      <View style={[styles.timelineDot, { backgroundColor: color }]} />
+      {!isLast && <View style={[styles.timelineLine, { backgroundColor: status === 'done' ? '#32D583' : '#1F2A37' }]} />}
+    </View>
+    <View style={styles.timelineRight}>
+      <Text style={[styles.timelineTitle, { color: status === 'pending' ? '#475467' : '#F9FAFB' }]}>{title}</Text>
+      {time ? <Text style={styles.timelineTime}>{time}</Text> : null}
+    </View>
+  </View>
+);
+
+const darkMapStyle = [
+  { "elementType": "geometry", "stylers": [{ "color": "#111827" }] },
+  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#1F2937" }] },
+  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0F172A" }] }
+];
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0C0E12',
+    backgroundColor: '#090B0F',
   },
-  safeArea: {
+  mapWrapper: {
     flex: 1,
   },
-  topBar: {
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  webMapPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0D1117',
+  },
+  webMapText: {
+    color: '#475467',
+    marginTop: 12,
+    fontSize: 14,
+  },
+  backButton: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  bottomSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#111827',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F2A37',
+    marginBottom: 32,
   },
-  topButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#151B26',
+  etaLabel: {
+    color: '#475467',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  etaValue: {
+    color: '#FFF',
+    fontSize: 32,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  callFab: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#F04438',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+  },
+  timeline: {
+    marginBottom: 32,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    height: 60,
+  },
+  timelineLeft: {
+    width: 30,
+    alignItems: 'center',
+  },
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    zIndex: 2,
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    marginVertical: 4,
+  },
+  timelineRight: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  timelineTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  timelineTime: {
+    color: '#98A2B3',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  driverInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  driverAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#1F2A37',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  screenTitle: {
+  driverDetails: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  driverName: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: '800',
-  },
-  mapContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  map: {
-    width: '100%',
-    height: '100%',
-  },
-  mapWebFallback: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  gridLinesHorizontal: {
-    position: 'absolute',
-    width: '100%',
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  gridLinesVertical: {
-    position: 'absolute',
-    width: 1,
-    height: '100%',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  radarSweeper: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    borderWidth: 1.5,
-    borderColor: 'rgba(240, 68, 56, 0.2)',
-    backgroundColor: 'rgba(240, 68, 56, 0.02)',
-  },
-  fallbackMarker: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ translateX: -40 }, { translateY: -40 }],
-    width: 80,
-    height: 80,
-  },
-  markerRing: {
-    position: 'absolute',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#F04438',
-    backgroundColor: 'rgba(240, 68, 56, 0.2)',
-  },
-  markerDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#F04438',
-  },
-  markerDotAmbulance: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#32D583',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-  },
-  markerLabel: {
-    color: '#FFF',
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 4,
-    textShadowColor: '#000',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-  },
-  radarText: {
-    position: 'absolute',
-    bottom: 15,
-    color: '#475467',
-    fontSize: 10,
     fontWeight: '700',
-    letterSpacing: 0.5,
   },
-  victimMarkerOutline: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(240, 68, 56, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#F04438',
+  vehicleInfo: {
+    color: '#98A2B3',
+    fontSize: 12,
+    marginTop: 2,
   },
   victimMarker: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  victimPing: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(240, 68, 56, 0.2)',
+  },
+  victimDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
     backgroundColor: '#F04438',
-  },
-  ambulanceMarker: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#32D583',
-    justifyContent: 'center',
-    alignItems: 'center',
     borderWidth: 2,
     borderColor: '#FFF',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
   },
-  statusCard: {
-    backgroundColor: '#151B26',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#1F2A37',
-  },
-  statusHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  statusTitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  statusDesc: {
-    color: '#98A2B3',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#1F2A37',
-    marginVertical: 16,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  infoItem: {
-    flex: 1,
-  },
-  infoLabel: {
-    color: '#475467',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  infoValue: {
-    color: '#F9FAFB',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  etaContainer: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(50, 213, 131, 0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(50, 213, 131, 0.2)',
-  },
-  etaNumber: {
-    color: '#32D583',
-    fontSize: 20,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
-  etaLabel: {
-    color: '#32D583',
-    fontSize: 8,
-    fontWeight: '800',
-  },
-  doneButton: {
-    backgroundColor: '#1F2A37',
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
-  },
-  doneButtonText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+  ambMarker: {
+    backgroundColor: '#F04438',
+    padding: 6,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#FFF',
   },
 });

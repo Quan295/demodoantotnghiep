@@ -1,21 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  SafeAreaView,
-  TouchableOpacity,
-  StatusBar,
-  Alert,
-  ActivityIndicator,
-  Platform,
-  Linking,
-  ScrollView,
-} from 'react-native';
-import { useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { SOSButton } from '@/components/SOSButton';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  Linking,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  Vibration,
+  View,
+} from 'react-native';
+
+const { width, height } = Dimensions.get('window');
 
 export default function SOSScreen() {
   const router = useRouter();
@@ -23,449 +29,534 @@ export default function SOSScreen() {
   // App states
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState('');
+  const [isPressing, setIsPressing] = useState(false);
   
-  // Developer simulation states (for graduation demo)
-  const [simulateGpsError, setSimulateGpsError] = useState(false);
-  const [simulateNetworkError, setSimulateNetworkError] = useState(false);
-  const [showSimControls, setShowSimControls] = useState(false);
+  // Animation values
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const radarAnim = useRef(new Animated.Value(0)).current;
+  const rotationAnim = useRef(new Animated.Value(0)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const blipAnim = useRef(new Animated.Value(0)).current;
 
-  // Function to handle SOS trigger
+  useEffect(() => {
+    // Pulse animation for the button
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+
+    // Radar scanning (rings)
+    const radar = Animated.loop(
+      Animated.timing(radarAnim, { toValue: 1, duration: 3000, easing: Easing.linear, useNativeDriver: true })
+    );
+    radar.start();
+
+    // Radar rotation (scanner line)
+    const rotation = Animated.loop(
+      Animated.timing(rotationAnim, { toValue: 1, duration: 4000, easing: Easing.linear, useNativeDriver: true })
+    );
+    rotation.start();
+
+    // Blips (dots appearing)
+    const blips = Animated.loop(
+      Animated.sequence([
+        Animated.timing(blipAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+        Animated.timing(blipAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
+      ])
+    );
+    blips.start();
+
+    return () => {
+      pulse.stop();
+      radar.stop();
+      rotation.stop();
+      blips.stop();
+    };
+  }, []);
+
+  const handlePressIn = () => {
+    setIsPressing(true);
+    Animated.parallel([
+      Animated.timing(progressAnim, { toValue: 1, duration: 2000, useNativeDriver: false }),
+      Animated.spring(scaleAnim, { toValue: 0.85, useNativeDriver: true })
+    ]).start(({ finished }) => {
+      if (finished) handleSOSTrigger();
+    });
+    if (Platform.OS !== 'web') Vibration.vibrate([0, 100, 100, 100], true);
+  };
+
+  const handlePressOut = () => {
+    setIsPressing(false);
+    Animated.parallel([
+      Animated.timing(progressAnim, { toValue: 0, duration: 300, useNativeDriver: false }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true })
+    ]).start();
+    if (Platform.OS !== 'web') Vibration.cancel();
+  };
+
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
+
   const handleSOSTrigger = async () => {
+    if (Platform.OS !== 'web') Vibration.vibrate(500);
+    triggerShake();
     setLoading(true);
-    setStatusText('Đang khởi động module định vị GPS...');
+    setStatusText('Đang quét tín hiệu GPS vệ tinh...');
 
     try {
-      // 1. Get GPS coordinates
-      let locationData = null;
-      
-      if (simulateGpsError) {
-        // Mocking GPS Off exception (EX01.1)
-        throw new Error('GPS_DISABLED');
-      }
-
-      // Real GPS request
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        throw new Error('PERMISSION_DENIED');
-      }
+      if (status !== 'granted') throw new Error('PERMISSION_DENIED');
 
-      // Check if location services are enabled
-      let isEnabled = await Location.hasServicesEnabledAsync();
-      if (!isEnabled) {
-        throw new Error('GPS_DISABLED');
-      }
-
-      setStatusText('Đang lấy vị trí GPS chính xác cao (<10m)...');
-      
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
       });
 
-      locationData = {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-        accuracy: position.coords.accuracy,
-      };
+      setStatusText('Đang truyền tọa độ khẩn cấp...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // 2. Send SOS Request with Retry logic (EX01.2)
-      setStatusText('Đang truyền tín hiệu cứu nạn khẩn cấp...');
-      await sendSOSWithRetry(locationData);
+      setLoading(false);
+      router.push({
+        pathname: '/(citizen)/tracking',
+        params: { 
+          lat: position.coords.latitude, 
+          lng: position.coords.longitude, 
+          acc: position.coords.accuracy 
+        }
+      });
 
     } catch (error: any) {
-      console.log('SOS Error: ', error.message);
       setLoading(false);
-      
-      if (error.message === 'GPS_DISABLED' || error.message === 'PERMISSION_DENIED') {
-        // EX01.1: GPS Off / Permission Denied
-        handleGpsException();
-      } else if (error.message === 'NETWORK_FAILED') {
-        // EX01.2: Network Timeout
-        handleNetworkException();
-      } else {
-        Alert.alert('Lỗi không xác định', 'Đã xảy ra lỗi khi kích hoạt SOS. Vui lòng gọi trực tiếp 115!');
-      }
+      Alert.alert('Lỗi Kết Nối', 'Vui lòng gọi 115 ngay!', [{ text: 'GỌI 115', onPress: () => Linking.openURL('tel:115') }]);
     }
   };
 
-  // GPS Exception Flow (EX01.1)
-  const handleGpsException = () => {
-    Alert.alert(
-      'CẢNH BÁO: Không Có GPS',
-      'Ứng dụng không thể truy cập định vị GPS. Hệ thống sẽ sử dụng vị trí mạng ước lượng hoặc bạn cần bật GPS ngay.',
-      [
-        {
-          text: 'GỌI 115 NGAY',
-          onPress: () => callHotline(),
-          style: 'destructive',
-        },
-        {
-          text: 'Dùng Vị Trí Mạng Ước Lượng',
-          onPress: () => {
-            // Fallback: Mock network location (IP/Cell Tower)
-            const mockLocation = {
-              latitude: 21.028511, // Hanoi Coordinates as fallback
-              longitude: 105.804817,
-              accuracy: 2500, // 2.5km accuracy
-            };
-            setLoading(true);
-            setStatusText('Đang kết nối bằng định vị ước lượng...');
-            setTimeout(() => {
-              sendSOSWithRetry(mockLocation);
-            }, 1000);
-          }
-        }
-      ]
-    );
-  };
+  const rotate = rotationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
-  // Network Exception Flow (EX01.2)
-  const handleNetworkException = () => {
-    Alert.alert(
-      'MẤT KẾT NỐI MẠNG',
-      'Không thể truyền tín hiệu SOS về trung tâm cứu hộ sau 3 lần thử lại. Vui lòng gọi điện trực tiếp!',
-      [
-        {
-          text: 'GỌI 115 KHẨN CẤP',
-          onPress: () => callHotline(),
-          style: 'destructive',
-        },
-        { text: 'Đóng', style: 'cancel' }
-      ]
-    );
-  };
+  const radarOpacity = radarAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.6, 0.3, 0],
+  });
 
-  // Mock server sending with 3-times retry logic
-  const sendSOSWithRetry = async (location: any) => {
-    let retries = 0;
-    const maxRetries = 3;
-    
-    const trySend = async (): Promise<boolean> => {
-      return new Promise((resolve, reject) => {
-        setTimeout(() => {
-          if (simulateNetworkError) {
-            reject(new Error('CONN_ERROR'));
-          } else {
-            resolve(true);
-          }
-        }, 1200); // 1.2 seconds per connection request
-      });
-    };
+  const radarScale = radarAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 2.5],
+  });
 
-    while (retries < maxRetries) {
-      try {
-        setStatusText(`Đang truyền tín hiệu... (Thử lại ${retries + 1}/${maxRetries})`);
-        await trySend();
-        
-        // Success!
-        setLoading(false);
-        // Navigate to tracking screen and pass location data
-        router.push({
-          pathname: '/(citizen)/tracking',
-          params: { 
-            lat: location.latitude, 
-            lng: location.longitude, 
-            acc: location.accuracy 
-          }
-        });
-        return;
-      } catch (err) {
-        retries++;
-        if (retries >= maxRetries) {
-          throw new Error('NETWORK_FAILED');
-        }
-      }
-    }
-  };
-
-  const callHotline = () => {
-    const phone = '115';
-    Linking.openURL(`tel:${phone}`).catch(() => {
-      Alert.alert('Không thể thực hiện cuộc gọi', 'Thiết bị của bạn không hỗ trợ chức năng gọi điện trực tiếp.');
-    });
-  };
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0%', '100%'],
+  });
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0C0E12" />
-      <SafeAreaView style={styles.safeArea}>
-        
-        {/* Top bar with back button & simulation settings */}
-        <View style={styles.topBar}>
-          <TouchableOpacity 
-            onPress={() => router.replace('/')} 
-            style={[styles.topButton, { backgroundColor: '#151B26' }]}
-          >
-            <Ionicons name="arrow-back" size={20} color="#F9FAFB" />
-          </TouchableOpacity>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <LinearGradient colors={['#090B0F', '#151B26']} style={styles.gradient}>
+        <SafeAreaView style={styles.safeArea}>
+          
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.replace('/')} style={styles.closeBtn}>
+              <Ionicons name="chevron-back" size={24} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>CRISIS COMMAND CENTER</Text>
+            <View style={{ width: 44 }} />
+          </View>
 
-          <Text style={styles.screenTitle}>Báo Cáo Khẩn Cấp</Text>
-
-          <TouchableOpacity 
-            onPress={() => setShowSimControls(!showSimControls)} 
-            style={[
-              styles.topButton, 
-              { backgroundColor: showSimControls ? '#F04438' : '#151B26' }
-            ]}
-          >
-            <Ionicons name="options-outline" size={20} color="#F9FAFB" />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.contentContainer}>
-          {/* Simulation Dashboard */}
-          {showSimControls && (
-            <View style={styles.simPanel}>
-              <View style={styles.simPanelHeader}>
-                <MaterialCommunityIcons name="test-tube" size={18} color="#F04438" />
-                <Text style={styles.simPanelTitle}>MÔ PHỎNG LỖI ĐỒ ÁN (EXCEPTIONS)</Text>
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.infoBox}>
+              <View style={styles.alertIconBox}>
+                <MaterialCommunityIcons name="broadcast" size={40} color="#F04438" />
               </View>
-
-              <View style={styles.simOption}>
-                <Text style={styles.simLabel}>Mô phỏng tắt GPS (EX01.1):</Text>
-                <TouchableOpacity 
-                  onPress={() => setSimulateGpsError(!simulateGpsError)}
-                  style={[
-                    styles.simToggle, 
-                    { backgroundColor: simulateGpsError ? '#F04438' : '#344054' }
-                  ]}
-                >
-                  <Text style={styles.simToggleText}>{simulateGpsError ? 'ĐANG BẬT LỖI' : 'TẮT LỖI'}</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.simOption}>
-                <Text style={styles.simLabel}>Mô phỏng mất mạng (EX01.2):</Text>
-                <TouchableOpacity 
-                  onPress={() => setSimulateNetworkError(!simulateNetworkError)}
-                  style={[
-                    styles.simToggle, 
-                    { backgroundColor: simulateNetworkError ? '#F04438' : '#344054' }
-                  ]}
-                >
-                  <Text style={styles.simToggleText}>{simulateNetworkError ? 'ĐANG BẬT LỖI' : 'TẮT LỖI'}</Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.simTip}>
-                * Sử dụng để trình diễn các luồng ngoại lệ trực tiếp trước hội đồng chấm.
+              <Text style={styles.mainTitle}>Tình Trạng Khẩn Cấp?</Text>
+              <Text style={styles.subTitle}>
+                Nhấn giữ nút SOS để kích hoạt quy trình ứng cứu đa tầng qua vệ tinh.
               </Text>
             </View>
-          )}
 
-          {/* SOS Trigger Area */}
-          <View style={styles.sosContainer}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#F04438" />
-                <Text style={styles.loadingStatusText}>{statusText}</Text>
-                <Text style={styles.loadingSubText}>Vui lòng giữ điện thoại ở khu vực thoáng đãng để GPS đạt độ chính xác tốt nhất.</Text>
-                
-                <TouchableOpacity style={styles.cancelLoadingButton} onPress={() => setLoading(false)}>
-                  <Text style={styles.cancelLoadingText}>Hủy Yêu Cầu</Text>
-                </TouchableOpacity>
+            <View style={styles.radarContainer}>
+              {/* Background Grid */}
+              <View style={styles.gridOverlay}>
+                {[...Array(6)].map((_, i) => (
+                  <View key={`ring-${i}`} style={[styles.staticRing, { width: (i + 1) * 50, height: (i + 1) * 50, borderRadius: ((i + 1) * 50) / 2 }]} />
+                ))}
+                <View style={styles.crosshairV} />
+                <View style={styles.crosshairH} />
               </View>
-            ) : (
-              <>
-                <View style={styles.instructionContainer}>
-                  <Text style={styles.instructionTitle}>Gặp Sự Cố Khẩn Cấp?</Text>
-                  <Text style={styles.instructionDesc}>
-                    Ấn giữ nút tròn bên dưới trong vòng 2 giây. Vị trí chính xác của bạn sẽ được gửi thẳng đến trung tâm điều phối 115 để điều xe cứu thương.
-                  </Text>
-                </View>
 
-                <SOSButton onTrigger={handleSOSTrigger} />
+              {/* Radar Rings Animation */}
+              <Animated.View style={[styles.radarRing, { transform: [{ scale: radarScale }], opacity: radarOpacity }]} />
+              
+              {/* Rotating Scanner Line */}
+              <Animated.View style={[styles.scannerContainer, { transform: [{ rotate }] }]}>
+                <LinearGradient
+                  colors={['rgba(240, 68, 56, 0.5)', 'transparent']}
+                  style={styles.scannerLine}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                />
+              </Animated.View>
 
-                {/* Direct Dial Alternative */}
-                <View style={styles.phoneDialContainer}>
-                  <Text style={styles.orText}>HOẶC GỌI TRỰC TIẾP</Text>
-                  <TouchableOpacity 
-                    activeOpacity={0.8}
-                    style={styles.hotlineButton} 
-                    onPress={callHotline}
+              {/* Blips (Random signals) */}
+              <Animated.View style={[styles.blip, { top: 80, left: 100, opacity: blipAnim }]} />
+              <Animated.View style={[styles.blip, { bottom: 100, right: 70, opacity: blipAnim }]} />
+
+              {/* SOS Main Button */}
+              <Animated.View style={{ transform: [{ translateX: shakeAnim }, { scale: scaleAnim }] }}>
+                <TouchableOpacity 
+                  activeOpacity={1}
+                  onPressIn={handlePressIn}
+                  onPressOut={handlePressOut}
+                  style={styles.sosButton}
+                >
+                  <LinearGradient
+                    colors={isPressing ? ['#D92D20', '#B42318'] : ['#F04438', '#D92D20']}
+                    style={styles.sosGradient}
                   >
-                    <Ionicons name="call" size={20} color="#FFF" />
-                    <Text style={styles.hotlineText}>GỌI NGAY ĐƯỜNG DÂY NÓNG 115</Text>
-                  </TouchableOpacity>
+                    {loading ? (
+                      <ActivityIndicator size="large" color="#FFF" />
+                    ) : (
+                      <>
+                        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                          <Text style={styles.sosText}>SOS</Text>
+                        </Animated.View>
+                        <Text style={styles.sosSubText}>GIỮ 2S ĐỂ GỬI</Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {isPressing && !loading && (
+                <View style={styles.pressProgressContainer}>
+                  <Animated.View style={[styles.pressProgressBar, { width: progressWidth }]} />
                 </View>
-              </>
-            )}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+              )}
+            </View>
+
+            <View style={styles.statusBox}>
+              {loading ? (
+                <View style={styles.scanningBox}>
+                  <ActivityIndicator color="#F04438" size="small" />
+                  <Text style={styles.statusText}>{statusText}</Text>
+                </View>
+              ) : (
+                <View style={styles.readyBox}>
+                  <View style={styles.dot} />
+                  <Text style={styles.readyText}>Tín hiệu ổn định (Ready)</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.gridContainer}>
+              <Text style={styles.gridLabel}>LOẠI HÌNH KHẨN CẤP</Text>
+              <View style={styles.actionGrid}>
+                <QuickCard icon="car-crash" label="Tai nạn" color="#F04438" />
+                <QuickCard icon="heartbeat" label="Đột quỵ" color="#F04438" />
+                <QuickCard icon="fire" label="Hỏa hoạn" color="#F79009" />
+              </View>
+            </View>
+          </ScrollView>
+
+          <TouchableOpacity 
+            style={styles.callFab}
+            onPress={() => Linking.openURL('tel:115')}
+          >
+            <LinearGradient colors={['#F04438', '#B42318']} style={styles.fabGradient}>
+              <Ionicons name="call" size={24} color="#FFF" />
+              <Text style={styles.fabText}>GỌI 115 TRỰC TIẾP</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+        </SafeAreaView>
+      </LinearGradient>
     </View>
   );
 }
 
+const QuickCard = ({ icon, label, color }: any) => (
+  <TouchableOpacity style={styles.quickCard}>
+    <View style={[styles.quickIconBox, { backgroundColor: `${color}15` }]}>
+      <FontAwesome5 name={icon} size={18} color={color} />
+    </View>
+    <Text style={styles.quickLabel}>{label}</Text>
+  </TouchableOpacity>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0C0E12',
+  },
+  gradient: {
+    flex: 1,
   },
   safeArea: {
     flex: 1,
   },
-  topBar: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F2A37',
+    paddingHorizontal: 20,
+    height: 60,
   },
-  topButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+  closeBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  screenTitle: {
-    color: '#F9FAFB',
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  scrollContainer: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingBottom: 40,
-  },
-  simPanel: {
-    backgroundColor: '#151B26',
-    marginHorizontal: 24,
-    marginTop: 16,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#1F2A37',
-  },
-  simPanelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-    gap: 8,
-  },
-  simPanelTitle: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  simOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  simLabel: {
-    color: '#D0D5DD',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  simToggle: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    width: 100,
-    alignItems: 'center',
-  },
-  simToggleText: {
-    color: '#FFF',
+  headerTitle: {
+    color: '#475467',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '900',
+    letterSpacing: 2.5,
   },
-  simTip: {
-    color: '#98A2B3',
-    fontSize: 10,
-    fontStyle: 'italic',
-    marginTop: 6,
-  },
-  sosContainer: {
+  scrollContent: {
+    padding: 24,
     alignItems: 'center',
-    marginTop: 20,
-    paddingHorizontal: 24,
   },
-  instructionContainer: {
+  infoBox: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 40,
   },
-  instructionTitle: {
+  alertIconBox: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    backgroundColor: 'rgba(240, 68, 56, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 68, 56, 0.2)',
+  },
+  mainTitle: {
     color: '#FFF',
-    fontSize: 24,
-    fontWeight: '800',
-    marginBottom: 12,
+    fontSize: 26,
+    fontWeight: '900',
+    textAlign: 'center',
   },
-  instructionDesc: {
+  subTitle: {
     color: '#98A2B3',
     fontSize: 14,
     textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 10,
-  },
-  loadingContainer: {
-    height: 400,
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginTop: 12,
+    lineHeight: 22,
     paddingHorizontal: 20,
   },
-  loadingStatusText: {
-    color: '#FFF',
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 24,
-    textAlign: 'center',
-  },
-  loadingSubText: {
-    color: '#667085',
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 18,
-  },
-  cancelLoadingButton: {
-    marginTop: 40,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#1F2A37',
-  },
-  cancelLoadingText: {
-    color: '#D0D5DD',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  phoneDialContainer: {
-    marginTop: 30,
-    width: '100%',
-    alignItems: 'center',
-  },
-  orText: {
-    color: '#475467',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 2,
-    marginBottom: 16,
-  },
-  hotlineButton: {
-    flexDirection: 'row',
-    backgroundColor: '#D92D20',
-    width: '100%',
-    paddingVertical: 16,
-    borderRadius: 16,
+  radarContainer: {
+    width: 320,
+    height: 320,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    marginBottom: 20,
   },
-  hotlineText: {
+  gridOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  staticRing: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  crosshairV: {
+    position: 'absolute',
+    width: 1,
+    height: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  crosshairH: {
+    position: 'absolute',
+    height: 1,
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  radarRing: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    borderWidth: 2,
+    borderColor: 'rgba(240, 68, 56, 0.3)',
+  },
+  scannerContainer: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    justifyContent: 'center',
+  },
+  scannerLine: {
+    width: 150,
+    height: 150,
+    borderTopLeftRadius: 150,
+  },
+  blip: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F04438',
+    shadowColor: '#F04438',
+    shadowRadius: 4,
+    shadowOpacity: 1,
+  },
+  sosButton: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    elevation: 20,
+    shadowColor: '#F04438',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 8,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  sosGradient: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sosText: {
     color: '#FFF',
-    fontSize: 15,
+    fontSize: 54,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  sosSubText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  pressProgressContainer: {
+    position: 'absolute',
+    bottom: 20,
+    width: 140,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  pressProgressBar: {
+    height: '100%',
+    backgroundColor: '#FFF',
+  },
+  statusBox: {
+    height: 40,
+    justifyContent: 'center',
+    marginBottom: 40,
+  },
+  readyBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(50, 213, 131, 0.05)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(50, 213, 131, 0.1)',
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#32D583',
+    marginRight: 10,
+  },
+  readyText: {
+    color: '#32D583',
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 0.5,
+  },
+  scanningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  statusText: {
+    color: '#F04438',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  gridContainer: {
+    width: '100%',
+  },
+  gridLabel: {
+    color: '#475467',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  actionGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  quickCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  quickIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  quickLabel: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  callFab: {
+    position: 'absolute',
+    bottom: 30,
+    left: 24,
+    right: 24,
+    height: 64,
+    borderRadius: 24,
+    overflow: 'hidden',
+    elevation: 10,
+  },
+  fabGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fabText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
 });
+

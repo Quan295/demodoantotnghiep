@@ -1,21 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  SafeAreaView,
-  TouchableOpacity,
-  Switch,
-  FlatList,
-  StatusBar,
-  Alert,
-  Vibration,
-  Platform,
-  Animated,
-} from 'react-native';
-import { useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Dimensions,
+  FlatList,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  Vibration,
+  View
+} from 'react-native';
+
+const { width, height } = Dimensions.get('window');
 
 interface LocationLog {
   id: string;
@@ -27,572 +29,544 @@ interface LocationLog {
 export default function DriverDashboard() {
   const router = useRouter();
   
-  // State variables
   const [isAvailable, setIsAvailable] = useState(false);
-  const [driverLocation, setDriverLocation] = useState<Location.LocationObject | null>(null);
   const [gpsLogs, setGpsLogs] = useState<LocationLog[]>([]);
   const [showIncomingOrder, setShowIncomingOrder] = useState(false);
   
-  // Animation values
   const flashAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(height)).current;
+  const radarScale = useRef(new Animated.Value(1)).current;
 
-  // Timers
-  const locationInterval = useRef<any>(null);
-  const orderSimulationTimeout = useRef<any>(null);
-
-  // Red Alert Flash Animation
   useEffect(() => {
-    let flashLoop: Animated.CompositeAnimation | null = null;
     if (showIncomingOrder) {
-      if (Platform.OS !== 'web') {
-        Vibration.vibrate([0, 500, 200, 500], true); // Constant vibration
-      }
-      flashLoop = Animated.loop(
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+      
+      Animated.loop(
         Animated.sequence([
-          Animated.timing(flashAnim, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: false,
-          }),
-          Animated.timing(flashAnim, {
-            toValue: 0,
-            duration: 500,
-            useNativeDriver: false,
-          }),
+          Animated.timing(radarScale, { toValue: 1.2, duration: 800, useNativeDriver: true }),
+          Animated.timing(radarScale, { toValue: 1, duration: 800, useNativeDriver: true }),
         ])
-      );
-      flashLoop.start();
-    } else {
-      if (Platform.OS !== 'web') {
-        Vibration.cancel();
-      }
-      flashAnim.setValue(0);
-    }
+      ).start();
 
-    return () => {
-      if (flashLoop) flashLoop.stop();
-      if (Platform.OS !== 'web') {
-        Vibration.cancel();
-      }
-    };
+      if (Platform.OS !== 'web') Vibration.vibrate([0, 500, 200, 500], true);
+      
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(flashAnim, { toValue: 1, duration: 500, useNativeDriver: false }),
+          Animated.timing(flashAnim, { toValue: 0, duration: 500, useNativeDriver: false }),
+        ])
+      ).start();
+    } else {
+      Animated.timing(slideAnim, { toValue: height, duration: 300, useNativeDriver: true }).start();
+      if (Platform.OS !== 'web') Vibration.cancel();
+    }
   }, [showIncomingOrder]);
-
-  // Handle availability toggle
-  useEffect(() => {
-    if (isAvailable) {
-      // 1. Start periodic GPS tracking (every 5 seconds)
-      startGpsTracking();
-      
-      // 2. Schedule simulated dispatch call after 6 seconds
-      orderSimulationTimeout.current = setTimeout(() => {
-        setShowIncomingOrder(true);
-      }, 6000);
-      
-    } else {
-      // Stop tracking
-      stopGpsTracking();
-      if (orderSimulationTimeout.current) {
-        clearTimeout(orderSimulationTimeout.current);
-      }
-    }
-
-    return () => {
-      stopGpsTracking();
-      if (orderSimulationTimeout.current) {
-        clearTimeout(orderSimulationTimeout.current);
-      }
-    };
-  }, [isAvailable]);
-
-  const startGpsTracking = async () => {
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Quyền định vị bị từ chối', 'Ứng dụng cần quyền định vị để cập nhật vị trí xe cứu thương.');
-        setIsAvailable(false);
-        return;
-      }
-
-      // Initial location fetch
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setDriverLocation(loc);
-      addGpsLog(loc.coords.latitude, loc.coords.longitude);
-
-      // Loop tracking every 5 seconds
-      locationInterval.current = setInterval(async () => {
-        const currentLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        setDriverLocation(currentLoc);
-        addGpsLog(currentLoc.coords.latitude, currentLoc.coords.longitude);
-      }, 5000);
-
-    } catch (error) {
-      console.log('Error in driver GPS tracking:', error);
-      // Fallback if location fails (e.g. mock locations)
-      const mockLat = 21.034567;
-      const mockLng = 105.812345;
-      addGpsLog(mockLat, mockLng);
-      locationInterval.current = setInterval(() => {
-        addGpsLog(mockLat + (Math.random() - 0.5) * 0.0002, mockLng + (Math.random() - 0.5) * 0.0002);
-      }, 5000);
-    }
-  };
-
-  const stopGpsTracking = () => {
-    if (locationInterval.current) {
-      clearInterval(locationInterval.current);
-      locationInterval.current = null;
-    }
-  };
-
-  const addGpsLog = (lat: number, lng: number) => {
-    const now = new Date();
-    const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-    const newLog: LocationLog = {
-      id: Math.random().toString(),
-      time: timeStr,
-      coords: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-      status: 'SENT_OK (PostGIS Update)',
-    };
-    setGpsLogs(prev => [newLog, ...prev].slice(0, 15)); // Keep last 15 logs
-  };
 
   const handleAcceptOrder = () => {
     setShowIncomingOrder(false);
-    setIsAvailable(false); // Set status to busy during ride
-    
-    // Navigate to navigation screen with mock case parameters
     router.push({
       pathname: '/(driver)/navigation',
       params: {
-        victimLat: 21.028511, // Hanoi coordinates for victim
-        victimLng: 105.804817,
+        victimLat: 21.0091,
+        victimLng: 105.8247,
         victimName: 'Nguyễn Văn A',
-        victimPhone: '0987.654.321',
         victimAddress: '12 Chùa Bộc, Đống Đa, Hà Nội',
-        victimInjury: 'Tai nạn giao thông - Chấn thương chân, chảy máu nhiều',
       }
     });
   };
 
-  const handleDeclineOrder = () => {
-    setShowIncomingOrder(false);
-    if (Platform.OS !== 'web') {
-      Vibration.cancel();
-    }
-    // Re-schedule simulation for demo
-    orderSimulationTimeout.current = setTimeout(() => {
-      setShowIncomingOrder(true);
-    }, 10000);
-  };
-
-  // Interpolate flashing color for emergency incoming order
   const flashBgColor = flashAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['#1E1616', '#3D1515'],
+    outputRange: ['#111827', '#450a0a'],
   });
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0C0E12" />
-      <SafeAreaView style={styles.safeArea}>
-        
-        {/* Top Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            onPress={() => router.replace('/')} 
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={20} color="#FFF" />
-          </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Hệ Máy Tài Xế</Text>
-            <Text style={styles.headerSubtitle}>Xe Cứu Thương #115-A</Text>
-          </View>
-          <View style={styles.driverAvatar}>
-            <Text style={styles.avatarText}>TX</Text>
-          </View>
-        </View>
-
-        {/* Main Status Control Panel */}
-        <View style={styles.statusPanel}>
-          <View style={styles.panelRow}>
-            <View style={styles.panelLabelContainer}>
-              <MaterialCommunityIcons 
-                name={isAvailable ? "check-circle" : "close-circle"} 
-                size={22} 
-                color={isAvailable ? "#32D583" : "#98A2B3"} 
-              />
-              <Text style={styles.panelTitle}>Trạng Thái Hoạt Động</Text>
-            </View>
-            <Switch
-              trackColor={{ false: '#344054', true: '#32D583' }}
-              thumbColor={isAvailable ? '#FFF' : '#98A2B3'}
-              onValueChange={setIsAvailable}
-              value={isAvailable}
-            />
-          </View>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <LinearGradient colors={['#090B0F', '#111827']} style={styles.gradient}>
+        <SafeAreaView style={styles.safeArea}>
           
-          <Text style={[styles.statusValueText, { color: isAvailable ? '#32D583' : '#98A2B3' }]}>
-            {isAvailable ? 'SẴN SÀNG NHẬN LỆNH (AVAILABLE)' : 'ĐANG TẮT ĐỊNH VỊ (OFFLINE)'}
-          </Text>
-
-          <Text style={styles.panelDesc}>
-            Khi ở trạng thái sẵn sàng, điện thoại của bạn sẽ định kỳ gửi GPS định vị về máy chủ mỗi 5 giây để PostGIS tính toán xe cứu thương tối ưu nhất cho nạn nhân.
-          </Text>
-        </View>
-
-        {/* Live GPS Console Logs */}
-        <View style={styles.consoleContainer}>
-          <View style={styles.consoleHeader}>
-            <Ionicons name="terminal-outline" size={16} color="#475467" />
-            <Text style={styles.consoleTitle}>GPS POSITION LOG CONSOLE</Text>
+          <View style={styles.header}>
+            <View>
+              <View style={styles.unitBadge}>
+                <Text style={styles.unitText}>UNIT: AMB-042</Text>
+              </View>
+              <Text style={styles.welcomeText}>Bác sĩ Hùng</Text>
+              <Text style={styles.vehicleText}>Đội 115 Đống Đa • Trực tuyến</Text>
+            </View>
+            <TouchableOpacity style={styles.profileCircle}>
+              <MaterialCommunityIcons name="account-circle-outline" size={32} color="#98A2B3" />
+            </TouchableOpacity>
           </View>
 
-          {gpsLogs.length === 0 ? (
-            <View style={styles.emptyConsole}>
-              <Text style={styles.emptyConsoleText}>
-                {isAvailable ? 'Đang kết nối GPS...' : 'Hãy gạt công tắc sẵn sàng phía trên để khởi động tracking...'}
-              </Text>
+          <View style={styles.statusSection}>
+            <TouchableOpacity 
+              activeOpacity={0.9}
+              onPress={() => setIsAvailable(!isAvailable)}
+              style={styles.statusCardWrapper}
+            >
+              <LinearGradient
+                colors={isAvailable ? ['rgba(50, 213, 131, 0.15)', 'rgba(50, 213, 131, 0.05)'] : ['rgba(255, 255, 255, 0.05)', 'rgba(255, 255, 255, 0.02)']}
+                style={styles.statusCard}
+              >
+                <View style={styles.statusInfo}>
+                  <View style={[styles.statusIndicator, { backgroundColor: isAvailable ? '#32D583' : '#475467' }]}>
+                    {isAvailable && <View style={styles.indicatorPing} />}
+                  </View>
+                  <View>
+                    <Text style={[styles.statusTitle, { color: isAvailable ? '#32D583' : '#98A2B3' }]}>
+                      {isAvailable ? 'ĐANG SẴN SÀNG' : 'NGOẠI TUYẾN'}
+                    </Text>
+                    <Text style={styles.statusSub}>Chạm để thay đổi trạng thái</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={isAvailable}
+                  onValueChange={setIsAvailable}
+                  trackColor={{ false: '#333', true: '#32D583' }}
+                  thumbColor="#FFF"
+                />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.statsRow}>
+            <StatCard icon="clipboard-list" value="12" label="Ca cứu trợ" color="#F04438" />
+            <StatCard icon="clock" value="8.5" label="Giờ trực" color="#F79009" />
+            <StatCard icon="star" value="4.9" label="Đánh giá" color="#A78BFA" />
+          </View>
+
+          <View style={styles.logContainer}>
+            <View style={styles.sectionHeader}>
+              <MaterialCommunityIcons name="broadcast" size={18} color="#475467" />
+              <Text style={styles.sectionTitle}>POSTGIS SYNC LOG</Text>
             </View>
-          ) : (
             <FlatList
               data={gpsLogs}
               keyExtractor={item => item.id}
               renderItem={({ item }) => (
-                <View style={styles.logRow}>
-                  <Text style={styles.logTime}>[{item.time}]</Text>
-                  <Text style={styles.logCoords}>GPS: {item.coords}</Text>
-                  <Text style={styles.logStatus}>{item.status}</Text>
+                <View style={styles.logItem}>
+                  <View style={styles.logIcon}>
+                    <Ionicons name="location" size={16} color="#475467" />
+                  </View>
+                  <View style={styles.logContent}>
+                    <Text style={styles.logTime}>{item.time}</Text>
+                    <Text style={styles.logCoords}>{item.coords}</Text>
+                  </View>
+                  <View style={styles.logStatus}>
+                    <Text style={styles.logStatusText}>ACTIVE</Text>
+                  </View>
                 </View>
               )}
-              style={styles.logList}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIconCircle}>
+                    <MaterialCommunityIcons name="satellite-variant" size={32} color="#1F2A37" />
+                  </View>
+                  <Text style={styles.emptyText}>Hệ thống PostGIS đang chờ kết nối...</Text>
+                </View>
+              }
             />
-          )}
-        </View>
+          </View>
 
-        {/* Incoming Dispatch Emergency Modal/Alert */}
-        {showIncomingOrder && (
-          <Animated.View style={[styles.emergencyOverlay, { backgroundColor: flashBgColor }]}>
-            <View style={styles.emergencyCard}>
-              
-              {/* Pulsing Bell Icon */}
-              <View style={styles.emergencyIconContainer}>
-                <MaterialCommunityIcons name="bell-ring" size={44} color="#F04438" />
-              </View>
-
-              <Text style={styles.emergencyTitle}>LỆNH ĐIỀU PHỐI KHẨN CẤP!</Text>
-              <Text style={styles.emergencySubtitle}>Từ Trung tâm Điều phối 115</Text>
-              
-              <View style={styles.divider} />
-
-              {/* Case Details */}
-              <View style={styles.detailsList}>
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>NẠN NHÂN</Text>
-                  <Text style={styles.detailValue}>Nguyễn Văn A (Nam, ~30 tuổi)</Text>
-                </View>
-
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>SỰ CỐ Y TẾ</Text>
-                  <Text style={[styles.detailValue, { color: '#F04438', fontWeight: '800' }]}>
-                    Tai nạn giao thông - Chấn thương chân, chảy máu nhiều
-                  </Text>
-                </View>
-
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>ĐỊA CHỈ</Text>
-                  <Text style={styles.detailValue}>12 Chùa Bộc, Đống Đa, Hà Nội</Text>
-                </View>
-
-                <View style={styles.detailItem}>
-                  <Text style={styles.detailLabel}>BÁN KÍNH TÍNH TOÁN (POSTGIS)</Text>
-                  <Text style={styles.detailValue}>Tìm thấy xe bạn ở cự ly gần nhất (~1.2 km)</Text>
+          {showIncomingOrder && (
+            <Animated.View style={[styles.orderOverlay, { backgroundColor: flashBgColor, transform: [{ translateY: slideAnim }] }]}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.orderHeader}>
+                <Animated.View style={[styles.emergencyIcon, { transform: [{ scale: radarScale }] }]}>
+                  <MaterialCommunityIcons name="alarm-light" size={32} color="#FFF" />
+                </Animated.View>
+                <View>
+                  <Text style={styles.orderTitle}>YÊU CẦU CỨU TRỢ!</Text>
+                  <Text style={styles.orderSubTitle}>Khoảng cách: 1.2 km • 4 phút</Text>
                 </View>
               </View>
+              
+              <View style={styles.orderInfoCard}>
+                <InfoRow icon="map-marker-radius" label="ĐỊA ĐIỂM" value="12 Chùa Bộc, Đống Đa, Hà Nội" />
+                <InfoRow icon="account-alert" label="NẠN NHÂN" value="Nguyễn Văn A (45 tuổi)" />
+                <InfoRow icon="alert-octagon" label="SỰ CỐ" value="Tai nạn giao thông - Chấn thương chân" />
+              </View>
 
-              {/* Action Buttons */}
-              <View style={styles.emergencyActions}>
+              <View style={styles.orderActions}>
                 <TouchableOpacity 
-                  activeOpacity={0.8}
-                  style={styles.declineButton} 
-                  onPress={handleDeclineOrder}
+                  style={styles.declineBtn} 
+                  onPress={() => setShowIncomingOrder(false)}
                 >
-                  <Text style={styles.declineText}>TỪ CHỐI</Text>
+                  <Text style={styles.declineText}>BỎ QUA</Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity 
-                  activeOpacity={0.8}
-                  style={styles.acceptButton} 
+                  style={styles.acceptBtn} 
                   onPress={handleAcceptOrder}
                 >
-                  <Text style={styles.acceptText}>TIẾP NHẬN</Text>
+                  <Text style={styles.acceptText}>NHẬN CA</Text>
                 </TouchableOpacity>
               </View>
-
-            </View>
-          </Animated.View>
-        )}
-
-      </SafeAreaView>
+            </Animated.View>
+          )}
+        </SafeAreaView>
+      </LinearGradient>
     </View>
   );
 }
 
+const StatCard = ({ icon, value, label, color }: any) => (
+  <View style={styles.statCard}>
+    <View style={[styles.statIconWrapper, { backgroundColor: `${color}10` }]}>
+      <FontAwesome5 name={icon} size={14} color={color} />
+    </View>
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
+  </View>
+);
+
+const InfoRow = ({ icon, label, value }: any) => (
+  <View style={styles.infoRow}>
+    <View style={styles.infoIconBox}>
+      <MaterialCommunityIcons name={icon} size={20} color="#98A2B3" />
+    </View>
+    <View style={styles.infoContent}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  </View>
+);
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0C0E12',
+  },
+  gradient: {
+    flex: 1,
   },
   safeArea: {
     flex: 1,
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F2A37',
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#151B26',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitleContainer: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  headerTitle: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: '#98A2B3',
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  driverAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#D92D20',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  statusPanel: {
-    backgroundColor: '#151B26',
-    margin: 20,
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#1F2A37',
-  },
-  panelRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 24,
   },
-  panelLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  unitBadge: {
+    backgroundColor: 'rgba(167, 139, 250, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginBottom: 6,
   },
-  panelTitle: {
-    color: '#FFF',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  statusValueText: {
-    fontSize: 12,
-    fontWeight: '800',
-    marginTop: 8,
-    letterSpacing: 0.5,
-  },
-  panelDesc: {
-    color: '#667085',
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 12,
-  },
-  consoleContainer: {
-    flex: 1,
-    backgroundColor: '#07090D',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#1F2A37',
-  },
-  consoleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1F2A37',
-    paddingBottom: 10,
-    marginBottom: 10,
-  },
-  consoleTitle: {
-    color: '#475467',
-    fontSize: 10,
-    fontWeight: '800',
+  unitText: {
+    color: '#A78BFA',
+    fontSize: 9,
+    fontWeight: '900',
     letterSpacing: 1,
   },
-  emptyConsole: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
+  welcomeText: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: '900',
   },
-  emptyConsoleText: {
+  vehicleText: {
     color: '#475467',
     fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  logList: {
-    flex: 1,
-  },
-  logRow: {
-    flexDirection: 'row',
-    marginVertical: 4,
-    flexWrap: 'wrap',
-  },
-  logTime: {
-    color: '#32D583',
-    fontSize: 11,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    marginRight: 6,
-  },
-  logCoords: {
-    color: '#FFF',
-    fontSize: 11,
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    marginRight: 6,
-    flex: 1,
-  },
-  logStatus: {
-    color: '#98A2B3',
-    fontSize: 10,
-    fontStyle: 'italic',
-  },
-  emergencyOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 999,
-    paddingHorizontal: 24,
-  },
-  emergencyCard: {
-    width: '100%',
-    backgroundColor: '#151B26',
-    borderRadius: 24,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#F04438',
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
-    shadowRadius: 15,
-  },
-  emergencyIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(240, 68, 56, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  emergencyTitle: {
-    color: '#F04438',
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-    textAlign: 'center',
-  },
-  emergencySubtitle: {
-    color: '#98A2B3',
-    fontSize: 13,
-    fontWeight: '600',
     marginTop: 4,
-    textAlign: 'center',
+    fontWeight: '600',
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#1F2A37',
-    width: '100%',
-    marginVertical: 18,
+  profileCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  detailsList: {
-    width: '100%',
-    gap: 12,
+  statusSection: {
+    paddingHorizontal: 24,
     marginBottom: 24,
   },
-  detailItem: {
-    width: '100%',
+  statusCardWrapper: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
   },
-  detailLabel: {
-    color: '#475467',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  detailValue: {
-    color: '#F9FAFB',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  emergencyActions: {
+  statusCard: {
     flexDirection: 'row',
-    gap: 14,
-    width: '100%',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
   },
-  declineButton: {
-    flex: 1,
-    paddingVertical: 14,
+  statusInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusIndicator: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  indicatorPing: {
+    width: 24,
+    height: 24,
     borderRadius: 12,
-    backgroundColor: '#1F2A37',
+    backgroundColor: 'rgba(50, 213, 131, 0.2)',
+    position: 'absolute',
+  },
+  statusTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  statusSub: {
+    color: '#475467',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    marginBottom: 32,
+  },
+  statCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 20,
+    padding: 16,
+    width: (width - 64) / 3,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.05)',
   },
-  declineText: {
-    color: '#D0D5DD',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  acceptButton: {
-    flex: 1.5,
-    paddingVertical: 14,
-    borderRadius: 12,
-    backgroundColor: '#F04438',
+  statIconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
     alignItems: 'center',
-    elevation: 3,
+    marginBottom: 12,
+  },
+  statValue: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  statLabel: {
+    color: '#475467',
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  logContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  sectionTitle: {
+    color: '#475467',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+  },
+  logItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  logIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logContent: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  logTime: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  logCoords: {
+    color: '#475467',
+    fontSize: 11,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  logStatus: {
+    backgroundColor: 'rgba(50, 213, 131, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  logStatusText: {
+    color: '#32D583',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  emptyState: {
+    alignItems: 'center',
+    marginTop: 60,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  emptyText: {
+    color: '#475467',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  orderOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    elevation: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 68, 56, 0.2)',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    gap: 16,
+  },
+  emergencyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#F04438',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#F04438',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+  },
+  orderTitle: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  orderSubTitle: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  orderInfoCard: {
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 32,
+    gap: 16,
+  },
+  infoIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  infoValue: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  orderActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  declineBtn: {
+    flex: 1,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  declineText: {
+    color: '#FFF',
+    fontWeight: '800',
+    letterSpacing: 1,
+    fontSize: 13,
+  },
+  acceptBtn: {
+    flex: 2,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: '#32D583',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#32D583',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
   },
   acceptText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '800',
+    color: '#022C22',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
 });
+

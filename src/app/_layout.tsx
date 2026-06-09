@@ -13,6 +13,7 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(citizen)" />
         <Stack.Screen name="(driver)" />
+        <Stack.Screen name="(dispatcher)" />
       </Stack>
     </ThemeProvider>
   );
