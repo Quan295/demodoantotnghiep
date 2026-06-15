@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Dimensions,
     Platform,
     SafeAreaView,
@@ -29,12 +30,15 @@ export default function CaseDetail() {
     { speaker: 'AI Dispatcher', text: 'Đã rõ. Xe cứu thương đang đến. Hãy giữ bình tĩnh.' },
   ];
 
-  const handleDispatch = () => {
+  const handleDispatch = async () => {
     setDispatching(true);
-    setTimeout(() => {
-      setDispatching(false);
-      router.back();
-    }, 2000);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setDispatching(false);
+    Alert.alert(
+      'Điều phối thành công',
+      'Đơn vị Hospital-115 đã nhận lệnh. Chi phí dự kiến: 500,000đ (Thanh toán qua cổng trung gian).',
+      [{ text: 'OK', onPress: () => router.back() }]
+    );
   };
 
   return (

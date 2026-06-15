@@ -30,7 +30,11 @@ export default function DriverDashboard() {
   const router = useRouter();
   
   const [isAvailable, setIsAvailable] = useState(false);
-  const [gpsLogs, setGpsLogs] = useState<LocationLog[]>([]);
+  const [gpsLogs, setGpsLogs] = useState<LocationLog[]>([
+    { id: '1', time: '14:20:05', coords: '21.0091° N, 105.8247° E', status: 'ACTIVE' },
+    { id: '2', time: '14:15:22', coords: '21.0123° N, 105.8301° E', status: 'ACTIVE' },
+    { id: '3', time: '14:10:45', coords: '21.0156° N, 105.8355° E', status: 'ACTIVE' },
+  ]);
   const [showIncomingOrder, setShowIncomingOrder] = useState(false);
   
   const flashAnim = useRef(new Animated.Value(0)).current;

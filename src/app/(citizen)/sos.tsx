@@ -9,7 +9,6 @@ import {
   Animated,
   Dimensions,
   Easing,
-  Linking,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -18,7 +17,7 @@ import {
   Text,
   TouchableOpacity,
   Vibration,
-  View,
+  View
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -30,6 +29,14 @@ export default function SOSScreen() {
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState('');
   const [isPressing, setIsPressing] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [isThirdParty, setIsThirdParty] = useState(false);
+  const [evidenceAttached, setEvidenceAttached] = useState(false);
+
+  useEffect(() => {
+    // Show terms on mount
+    setShowTerms(true);
+  }, []);
   
   // Animation values
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -109,6 +116,11 @@ export default function SOSScreen() {
   };
 
   const handleSOSTrigger = async () => {
+    if (isThirdParty && !evidenceAttached) {
+      Alert.alert('Minh chứng khẩn cấp', 'Vui lòng đính kèm hình ảnh hoặc video hiện trường khi gửi hộ người khác để chống báo cáo giả mạo.');
+      return;
+    }
+    
     if (Platform.OS !== 'web') Vibration.vibrate(500);
     triggerShake();
     setLoading(true);
@@ -137,7 +149,37 @@ export default function SOSScreen() {
 
     } catch (error: any) {
       setLoading(false);
-      Alert.alert('Lỗi Kết Nối', 'Vui lòng gọi 115 ngay!', [{ text: 'GỌI 115', onPress: () => Linking.openURL('tel:115') }]);
+      Alert.alert('Lỗi Kết Nối', 'Vui lòng thử lại!', [{ text: 'ĐÓNG' }]);
+    }
+  };
+
+  const handleVoiceSOS = async () => {
+    setLoading(true);
+    setStatusText('Đang ghi âm và lấy vị trí...');
+    
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') throw new Error('PERMISSION_DENIED');
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      setStatusText('Đang gửi dữ liệu thoại & tọa độ...');
+      await new Promise(resolve => setTimeout(resolve, 2500));
+
+      setLoading(false);
+      router.push({
+        pathname: '/(citizen)/tracking',
+        params: { 
+          lat: position.coords.latitude, 
+          lng: position.coords.longitude,
+          mode: 'voice'
+        }
+      });
+    } catch (error) {
+      setLoading(false);
+      Alert.alert('Lỗi', 'Không thể gửi dữ liệu khẩn cấp.');
     }
   };
 
@@ -261,6 +303,29 @@ export default function SOSScreen() {
             </View>
 
             <View style={styles.gridContainer}>
+              <Text style={styles.gridLabel}>CẤU HÌNH GỬI TIN</Text>
+              <View style={styles.configRow}>
+                <TouchableOpacity 
+                  style={[styles.configCard, isThirdParty && styles.configCardActive]}
+                  onPress={() => setIsThirdParty(!isThirdParty)}
+                >
+                  <MaterialCommunityIcons name="account-group" size={24} color={isThirdParty ? '#F04438' : '#475467'} />
+                  <Text style={[styles.configText, isThirdParty && styles.configTextActive]}>Gửi hộ người thân</Text>
+                </TouchableOpacity>
+
+                {isThirdParty && (
+                  <TouchableOpacity 
+                    style={[styles.configCard, evidenceAttached && styles.configCardActive]}
+                    onPress={() => setEvidenceAttached(!evidenceAttached)}
+                  >
+                    <MaterialCommunityIcons name="camera-check" size={24} color={evidenceAttached ? '#32D583' : '#475467'} />
+                    <Text style={[styles.configText, evidenceAttached && styles.configTextActive]}>
+                      {evidenceAttached ? 'Đã có minh chứng' : 'Thêm minh chứng'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
               <Text style={styles.gridLabel}>LOẠI HÌNH KHẨN CẤP</Text>
               <View style={styles.actionGrid}>
                 <QuickCard icon="car-crash" label="Tai nạn" color="#F04438" />
@@ -270,13 +335,36 @@ export default function SOSScreen() {
             </View>
           </ScrollView>
 
+          {/* Anti-Fraud Terms Modal (Mock) */}
+          {showTerms && (
+            <View style={styles.modalOverlay}>
+              <View style={styles.termsCard}>
+                <View style={styles.termsHeader}>
+                  <MaterialCommunityIcons name="shield-lock" size={28} color="#F04438" />
+                  <Text style={styles.termsTitle}>CHỐNG GIẢ MẠO & QUY ĐỊNH</Text>
+                </View>
+                <ScrollView style={styles.termsBody}>
+                  <Text style={styles.termsText}>
+                    1. Mọi hành vi gửi SOS giả mạo sẽ bị truy cứu trách nhiệm theo quy định của pháp luật.{'\n\n'}
+                    2. Khi gửi hộ người thân, hệ thống bắt buộc yêu cầu minh chứng hình ảnh/video hiện trường.{'\n\n'}
+                    3. Vị trí GPS của bạn sẽ được tự động ghi lại để đối soát với đơn vị cứu hộ.{'\n\n'}
+                    4. Dữ liệu âm thanh được phân tích bởi AI (Whisper/BERT) để xác thực độ khẩn cấp.
+                  </Text>
+                </ScrollView>
+                <TouchableOpacity style={styles.termsBtn} onPress={() => setShowTerms(false)}>
+                  <Text style={styles.termsBtnText}>TÔI ĐÃ HIỂU & ĐỒNG Ý</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <TouchableOpacity 
             style={styles.callFab}
-            onPress={() => Linking.openURL('tel:115')}
+            onPress={handleVoiceSOS}
           >
             <LinearGradient colors={['#F04438', '#B42318']} style={styles.fabGradient}>
-              <Ionicons name="call" size={24} color="#FFF" />
-              <Text style={styles.fabText}>GỌI 115 TRỰC TIẾP</Text>
+              <MaterialCommunityIcons name="microphone-settings" size={24} color="#FFF" />
+              <Text style={styles.fabText}>GỬI THOẠI & ĐỊNH VỊ</Text>
             </LinearGradient>
           </TouchableOpacity>
 
@@ -557,6 +645,82 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     letterSpacing: 1,
+  },
+  configRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 24,
+  },
+  configCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    gap: 8,
+  },
+  configCardActive: {
+    borderColor: 'rgba(240, 68, 56, 0.5)',
+    backgroundColor: 'rgba(240, 68, 56, 0.05)',
+  },
+  configText: {
+    color: '#475467',
+    fontSize: 10,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  configTextActive: {
+    color: '#FFF',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+    padding: 30,
+  },
+  termsCard: {
+    backgroundColor: '#151B26',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  termsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  termsTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  termsBody: {
+    marginBottom: 24,
+  },
+  termsText: {
+    color: '#98A2B3',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  termsBtn: {
+    backgroundColor: '#F04438',
+    height: 54,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  termsBtnText: {
+    color: '#FFF',
+    fontWeight: '900',
+    fontSize: 14,
   },
 });
 

@@ -51,6 +51,24 @@ const MOCK_CASES = [
     priority: 'Khẩn cấp',
     coordinates: { latitude: 21.0167, longitude: 105.8163 },
   },
+  {
+    id: '3',
+    type: 'Sản khoa khẩn cấp',
+    status: 'Chờ xử lý',
+    time: '12 phút trước',
+    address: '191 Bà Triệu, Hai Bà Trưng, Hà Nội',
+    priority: 'Cao',
+    coordinates: { latitude: 21.0112, longitude: 105.8489 },
+  },
+  {
+    id: '4',
+    type: 'Đột quỵ',
+    status: 'Đang điều phối',
+    time: '1 phút trước',
+    address: 'Trần Duy Hưng, Cầu Giấy, Hà Nội',
+    priority: 'Khẩn cấp',
+    coordinates: { latitude: 21.0065, longitude: 105.7954 },
+  },
 ];
 
 export default function DispatcherDashboard() {
@@ -176,8 +194,10 @@ export default function DispatcherDashboard() {
                   </View>
 
                   <View style={styles.logContainer}>
-                    <Text style={styles.logText}>[14:20:05] SOS SIGNAL DETECTED - CHUA BOC</Text>
-                    <Text style={styles.logText}>[14:21:12] AMBULANCE UNIT-04 DISPATCHED</Text>
+                    <Text style={styles.logText}>[14:20:05] SOS DETECTED - CHUA BOC</Text>
+                    <Text style={styles.logText}>[14:20:07] WHISPER: "Help! Car accident..."</Text>
+                    <Text style={styles.logText}>[14:20:08] BERT: Traffic Collision (94%)</Text>
+                    <Text style={styles.logText}>[14:21:12] UNIT-04 (HOSPITAL-115) DISPATCHED</Text>
                   </View>
                 </LinearGradient>
               </View>
