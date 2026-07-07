@@ -20,7 +20,7 @@ import {
 
 const { width, height } = Dimensions.get('window');
 
-type Role = 'citizen' | 'driver' | 'dispatcher' | null;
+type Role = 'citizen' | 'driver' | 'dispatcher' | 'admin' | 'hospital' | 'provider' | null;
 
 export default function WelcomeScreen() {
   const theme = useTheme();
@@ -65,6 +65,12 @@ export default function WelcomeScreen() {
       router.push('/(driver)/dashboard');
     } else if (selectedRole === 'dispatcher') {
       router.push('/(dispatcher)/dashboard');
+    } else if (selectedRole === 'admin') {
+      router.push('/(admin)/dashboard');
+    } else if (selectedRole === 'hospital') {
+      router.push('/(hospital)/dashboard');
+    } else if (selectedRole === 'provider') {
+      router.push('/(provider)/dashboard');
     }
   };
 
@@ -76,8 +82,17 @@ export default function WelcomeScreen() {
       setUsername('DRIVER-042');
       setPassword('driver123');
     } else if (selectedRole === 'dispatcher') {
+      setUsername('dispatcher');
+      setPassword('dispatcher123');
+    } else if (selectedRole === 'admin') {
       setUsername('admin');
       setPassword('admin123');
+    } else if (selectedRole === 'hospital') {
+      setUsername('HOSP-001');
+      setPassword('hospital123');
+    } else if (selectedRole === 'provider') {
+      setUsername('PROV-001');
+      setPassword('provider123');
     }
   };
 
@@ -93,7 +108,7 @@ export default function WelcomeScreen() {
         };
       case 'driver':
         return {
-          icon: 'user-md',
+          icon: 'userMd',
           color: '#32D583',
           title: 'Cổng Đội Cứu Hộ',
           gradient: ['#32D583', '#064E3B'],
@@ -106,6 +121,30 @@ export default function WelcomeScreen() {
           title: 'Cổng Điều Phối',
           gradient: ['#A78BFA', '#7C3AED'],
           inputPlaceholder: 'Tài khoản hệ thống'
+        };
+      case 'admin':
+        return {
+          icon: 'shieldAlt',
+          color: '#F59E0B',
+          title: 'Cổng Quản Trị',
+          gradient: ['#F59E0B', '#D97706'],
+          inputPlaceholder: 'Tài khoản Admin'
+        };
+      case 'hospital':
+        return {
+          icon: 'hospital',
+          color: '#3B82F6',
+          title: 'Cổng Bệnh Viện',
+          gradient: ['#3B82F6', '#2563EB'],
+          inputPlaceholder: 'Mã Bệnh Viện'
+        };
+      case 'provider':
+        return {
+          icon: 'truckMedical',
+          color: '#10B981',
+          title: 'Cổng Nhà Cung Cấp',
+          gradient: ['#10B981', '#059669'],
+          inputPlaceholder: 'Mã Nhà Cung Cấp'
         };
       default:
         return null;
@@ -153,7 +192,7 @@ export default function WelcomeScreen() {
             <View style={styles.loginForm}>
               <View style={styles.inputContainer}>
                 <View style={styles.inputIconBox}>
-                  <Ionicons name={selectedRole === 'citizen' ? 'person' : 'finger-print'} size={20} color={roleInfo.color} />
+                  <Ionicons name={selectedRole === 'citizen' ? 'person' : 'fingerPrint'} size={20} color={roleInfo.color} />
                 </View>
                 <TextInput
                   style={styles.input}
@@ -289,7 +328,7 @@ export default function WelcomeScreen() {
               <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
                 <View style={styles.roleIconBox}>
                   <LinearGradient colors={['#32D583', '#064E3B']} style={styles.iconInner}>
-                    <FontAwesome5 name="user-md" size={20} color="#FFF" />
+                    <FontAwesome5 name="userMd" size={20} color="#FFF" />
                   </LinearGradient>
                 </View>
                 <View style={styles.roleTextContainer}>
@@ -319,6 +358,69 @@ export default function WelcomeScreen() {
                 </View>
                 <View style={styles.arrowBox}>
                   <Ionicons name="arrow-forward" size={18} color="#A78BFA" />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              activeOpacity={0.9} 
+              onPress={() => handleSelectRole('provider')}
+              style={styles.glassCard}
+            >
+              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
+                <View style={styles.roleIconBox}>
+                  <LinearGradient colors={['#10B981', '#059669']} style={styles.iconInner}>
+                    <FontAwesome5 name="truckMedical" size={20} color="#FFF" />
+                  </LinearGradient>
+                </View>
+                <View style={styles.roleTextContainer}>
+                  <Text style={styles.roleTitle}>Nhà Cung Cấp</Text>
+                  <Text style={styles.roleDesc}>Quản lý xe, xem doanh thu, hiệu suất</Text>
+                </View>
+                <View style={styles.arrowBox}>
+                  <Ionicons name="arrow-forward" size={18} color="#10B981" />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              activeOpacity={0.9} 
+              onPress={() => handleSelectRole('hospital')}
+              style={styles.glassCard}
+            >
+              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
+                <View style={styles.roleIconBox}>
+                  <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.iconInner}>
+                    <FontAwesome5 name="hospital" size={20} color="#FFF" />
+                  </LinearGradient>
+                </View>
+                <View style={styles.roleTextContainer}>
+                  <Text style={styles.roleTitle}>Bệnh Viện</Text>
+                  <Text style={styles.roleDesc}>Quản lý đội xe, thống kê nội bộ</Text>
+                </View>
+                <View style={styles.arrowBox}>
+                  <Ionicons name="arrow-forward" size={18} color="#3B82F6" />
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              activeOpacity={0.9} 
+              onPress={() => handleSelectRole('admin')}
+              style={styles.glassCard}
+            >
+              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
+                <View style={styles.roleIconBox}>
+                  <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.iconInner}>
+                    <FontAwesome5 name="shieldAlt" size={20} color="#FFF" />
+                  </LinearGradient>
+                </View>
+                <View style={styles.roleTextContainer}>
+                  <Text style={styles.roleTitle}>Quản Trị Viên</Text>
+                  <Text style={styles.roleDesc}>Quản lý hệ thống, thống kê toàn bộ</Text>
+                </View>
+                <View style={styles.arrowBox}>
+                  <Ionicons name="arrow-forward" size={18} color="#F59E0B" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>

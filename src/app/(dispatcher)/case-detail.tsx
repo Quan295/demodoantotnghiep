@@ -133,7 +133,7 @@ export default function CaseDetail() {
                 <ActivityIndicator color="#000" />
               ) : (
                 <>
-                  <FontAwesome5 name="paper-plane" size={16} color="#000" />
+                  <FontAwesome5 name="paperPlane" size={16} color="#000" />
                   <Text style={styles.dispatchBtnText}>DISPATCH AMBULANCE</Text>
                 </>
               )}

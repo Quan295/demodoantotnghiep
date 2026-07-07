@@ -273,7 +273,7 @@ export default function NavigationScreen() {
               onPress={handleCompleteMission} 
               style={[styles.mainButton, { backgroundColor: '#F04438' }]}
             >
-              <FontAwesome5 name="flag-checkered" size={14} color="#FFF" style={styles.btnIcon} />
+              <FontAwesome5 name="flagCheckered" size={14} color="#FFF" style={styles.btnIcon} />
               <Text style={styles.mainButtonText}>HOÀN THÀNH CA CỨU HỘ</Text>
             </TouchableOpacity>
           )}

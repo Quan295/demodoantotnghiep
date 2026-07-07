@@ -2,15 +2,15 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    Linking,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Animated,
+  Dimensions,
+  Linking,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 // Safely import MapView only on Native platforms
@@ -198,7 +198,7 @@ export default function TrackingScreen() {
 
         <View style={styles.driverInfo}>
           <View style={styles.driverAvatar}>
-            <FontAwesome5 name="user-md" size={20} color="#98A2B3" />
+            <FontAwesome5 name="userMd" size={20} color="#98A2B3" />
           </View>
           <View style={styles.driverDetails}>
             <Text style={styles.driverName}>{status === 'PENDING' ? 'Đang tìm xe...' : 'Bác sĩ Lê Văn M'}</Text>
