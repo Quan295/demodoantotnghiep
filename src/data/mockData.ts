@@ -1,17 +1,14 @@
 import {
-  User,
-  Citizen,
-  Driver,
-  Dispatcher,
-  Admin,
-  Hospital,
-  Provider,
-  Vehicle,
-  EmergencyCase,
-  Transaction,
-  Review,
-  ProviderStats,
-  SystemStats,
+    Admin,
+    Dispatcher,
+    Driver,
+    EmergencyCase,
+    Provider,
+    ProviderStats,
+    Reporter,
+    Review,
+    SystemStats,
+    Transaction
 } from '@/types';
 
 // Mock Users
@@ -61,34 +58,9 @@ export const mockProvider: Provider = {
   createdAt: new Date('2025-03-15'),
 };
 
-export const mockHospital: Hospital = {
-  id: 'hospital-1',
-  role: 'hospital',
-  hospitalId: 'HOSP-001',
-  name: 'Bệnh viện Chợ Rẫy',
-  email: 'info@choray.com',
-  phone: '02838651234',
-  address: '201 Đường Nguyễn Chí Thanh, Quận 5, TP.HCM',
-  contactPerson: 'Bác sĩ Trần Văn B',
-  balance: 10000000,
-  totalRevenue: 50000000,
-  totalCases: 300,
-  avgRating: 4.7,
-  vehicles: [
-    {
-      id: 'veh-3',
-      licensePlate: '51C-11111',
-      type: 'ambulance',
-      status: 'available',
-      hospitalId: 'hospital-1',
-    },
-  ],
-  createdAt: new Date('2025-02-20'),
-};
-
-export const mockCitizen: Citizen = {
-  id: 'citizen-1',
-  role: 'citizen',
+export const mockReporter: Reporter = {
+  id: 'reporter-1',
+  role: 'reporter',
   name: 'Lê Thị C',
   email: 'lethi.c@gmail.com',
   phone: '0901234567',
@@ -126,9 +98,9 @@ export const mockDispatcher: Dispatcher = {
 export const mockCases: EmergencyCase[] = [
   {
     id: 'case-1',
-    citizenId: 'citizen-1',
-    citizenName: 'Lê Thị C',
-    citizenPhone: '0901234567',
+    reporterId: 'reporter-1',
+    reporterName: 'Lê Thị C',
+    reporterPhone: '0901234567',
     location: {
       lat: 10.762622,
       lng: 106.660172,
@@ -149,9 +121,9 @@ export const mockCases: EmergencyCase[] = [
   },
   {
     id: 'case-2',
-    citizenId: 'citizen-1',
-    citizenName: 'Lê Thị C',
-    citizenPhone: '0901234567',
+    reporterId: 'reporter-1',
+    reporterName: 'Lê Thị C',
+    reporterPhone: '0901234567',
     location: {
       lat: 10.772622,
       lng: 106.670172,
@@ -212,7 +184,7 @@ export const mockReviews: Review[] = [
   {
     id: 'review-1',
     caseId: 'case-1',
-    citizenId: 'citizen-1',
+    reporterId: 'reporter-1',
     providerId: 'provider-1',
     rating: 5,
     comment: 'Dịch vụ rất nhanh chóng, tài xế nhiệt tình',
@@ -244,7 +216,6 @@ export const mockSystemStats: SystemStats = {
   totalCases: 5000,
   totalRevenue: 500000000,
   totalProviders: 25,
-  totalHospitals: 10,
   avgRating: 4.4,
   topProviders: [mockProviderStats],
   flaggedProviders: [

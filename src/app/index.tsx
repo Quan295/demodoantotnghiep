@@ -4,23 +4,23 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Vibration,
-  View
+    Animated,
+    Dimensions,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    Vibration,
+    View
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
-type Role = 'citizen' | 'driver' | 'dispatcher' | 'admin' | 'hospital' | 'provider' | null;
+type Role = 'reporter' | 'driver' | 'dispatcher' | 'admin' | 'provider' | null;
 
 export default function WelcomeScreen() {
   const theme = useTheme();
@@ -59,7 +59,7 @@ export default function WelcomeScreen() {
     setLoading(false);
     
     // Logic điều hướng dựa trên Role
-    if (selectedRole === 'citizen') {
+    if (selectedRole === 'reporter') {
       router.push('/(citizen)/sos');
     } else if (selectedRole === 'driver') {
       router.push('/(driver)/dashboard');
@@ -67,19 +67,17 @@ export default function WelcomeScreen() {
       router.push('/(dispatcher)/dashboard');
     } else if (selectedRole === 'admin') {
       router.push('/(admin)/dashboard');
-    } else if (selectedRole === 'hospital') {
-      router.push('/(hospital)/dashboard');
     } else if (selectedRole === 'provider') {
       router.push('/(provider)/dashboard');
     }
   };
 
   const fillMockData = () => {
-    if (selectedRole === 'citizen') {
+    if (selectedRole === 'reporter') {
       setPhone('0987654321');
       setPassword('123456');
     } else if (selectedRole === 'driver') {
-      setUsername('DRIVER-042');
+      setUsername('DRIVER-001');
       setPassword('driver123');
     } else if (selectedRole === 'dispatcher') {
       setUsername('dispatcher');
@@ -87,9 +85,6 @@ export default function WelcomeScreen() {
     } else if (selectedRole === 'admin') {
       setUsername('admin');
       setPassword('admin123');
-    } else if (selectedRole === 'hospital') {
-      setUsername('HOSP-001');
-      setPassword('hospital123');
     } else if (selectedRole === 'provider') {
       setUsername('PROV-001');
       setPassword('provider123');
@@ -98,11 +93,11 @@ export default function WelcomeScreen() {
 
   const getRoleInfo = () => {
     switch (selectedRole) {
-      case 'citizen':
+      case 'reporter':
         return {
           icon: 'ambulance',
           color: '#F04438',
-          title: 'Cổng Người Dân',
+          title: 'Cổng Người Báo Cáo',
           gradient: ['#F04438', '#D92D20'],
           inputPlaceholder: 'Số điện thoại hoặc Email'
         };
@@ -129,14 +124,6 @@ export default function WelcomeScreen() {
           title: 'Cổng Quản Trị',
           gradient: ['#F59E0B', '#D97706'],
           inputPlaceholder: 'Tài khoản Admin'
-        };
-      case 'hospital':
-        return {
-          icon: 'hospital',
-          color: '#3B82F6',
-          title: 'Cổng Bệnh Viện',
-          gradient: ['#3B82F6', '#2563EB'],
-          inputPlaceholder: 'Mã Bệnh Viện'
         };
       case 'provider':
         return {
@@ -301,7 +288,7 @@ export default function WelcomeScreen() {
             
             <TouchableOpacity 
               activeOpacity={0.9} 
-              onPress={() => handleSelectRole('citizen')}
+              onPress={() => handleSelectRole('reporter')}
               style={styles.glassCard}
             >
               <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
@@ -311,7 +298,7 @@ export default function WelcomeScreen() {
                   </LinearGradient>
                 </View>
                 <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Người Dân</Text>
+                  <Text style={styles.roleTitle}>Người Báo Cáo</Text>
                   <Text style={styles.roleDesc}>Yêu cầu cứu trợ SOS khẩn cấp</Text>
                 </View>
                 <View style={styles.arrowBox}>
@@ -379,27 +366,6 @@ export default function WelcomeScreen() {
                 </View>
                 <View style={styles.arrowBox}>
                   <Ionicons name="arrow-forward" size={18} color="#10B981" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('hospital')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.iconInner}>
-                    <FontAwesome5 name="hospital" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Bệnh Viện</Text>
-                  <Text style={styles.roleDesc}>Quản lý đội xe, thống kê nội bộ</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#3B82F6" />
                 </View>
               </LinearGradient>
             </TouchableOpacity>

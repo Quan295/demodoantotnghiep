@@ -1,13 +1,12 @@
 // User/Role Types
 export type Role = 
-  | 'citizen' 
+  | 'reporter' 
   | 'driver' 
   | 'dispatcher' 
   | 'admin' 
-  | 'hospital' 
   | 'provider';
 
-export type CitizenTier = 'bronze' | 'silver' | 'gold';
+export type ReporterTier = 'bronze' | 'silver' | 'gold';
 
 export interface User {
   id: string;
@@ -18,9 +17,9 @@ export interface User {
   createdAt: Date;
 }
 
-export interface Citizen extends User {
-  role: 'citizen';
-  tier: CitizenTier;
+export interface Reporter extends User {
+  role: 'reporter';
+  tier: ReporterTier;
   totalCases: number;
   avgRating: number;
 }
@@ -29,7 +28,6 @@ export interface Driver extends User {
   role: 'driver';
   driverId: string;
   providerId: string;
-  hospitalId?: string;
   licensePlate: string;
   vehicleType: string;
   status: 'available' | 'busy' | 'offline';
@@ -43,18 +41,6 @@ export interface Dispatcher extends User {
 export interface Admin extends User {
   role: 'admin';
   adminId: string;
-}
-
-export interface Hospital extends User {
-  role: 'hospital';
-  hospitalId: string;
-  address: string;
-  contactPerson: string;
-  balance: number;
-  totalRevenue: number;
-  totalCases: number;
-  avgRating: number;
-  vehicles: Vehicle[];
 }
 
 export interface Provider extends User {
@@ -80,7 +66,6 @@ export interface Vehicle {
   type: 'ambulance' | 'emergency-car' | 'other';
   status: 'available' | 'busy' | 'maintenance';
   providerId?: string;
-  hospitalId?: string;
   driverId?: string;
 }
 
@@ -95,9 +80,9 @@ export type CaseStatus =
 
 export interface EmergencyCase {
   id: string;
-  citizenId: string;
-  citizenName: string;
-  citizenPhone: string;
+  reporterId: string;
+  reporterName: string;
+  reporterPhone: string;
   location: {
     lat: number;
     lng: number;
@@ -107,7 +92,6 @@ export interface EmergencyCase {
   priority: 'low' | 'medium' | 'high' | 'critical';
   description: string;
   assignedProviderId?: string;
-  assignedHospitalId?: string;
   assignedDriverId?: string;
   assignedVehicleId?: string;
   createdAt: Date;
@@ -143,9 +127,8 @@ export interface Transaction {
 export interface Review {
   id: string;
   caseId: string;
-  citizenId: string;
+  reporterId: string;
   providerId: string;
-  hospitalId?: string;
   rating: number; // 1-5
   comment: string;
   categories: {
@@ -177,7 +160,6 @@ export interface SystemStats {
   totalCases: number;
   totalRevenue: number;
   totalProviders: number;
-  totalHospitals: number;
   avgRating: number;
   topProviders: ProviderStats[];
   flaggedProviders: { providerId: string; providerName: string; complaintRate: number }[];

@@ -1,21 +1,21 @@
+import { mockCases, mockProvider, mockSystemStats } from '@/data/mockData';
+import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { mockSystemStats, mockProviderStats, mockCases, mockProvider, mockHospital } from '@/data/mockData';
 
 const DashboardScreen = () => {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'hospitals' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'reports'>('overview');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -53,12 +53,6 @@ const DashboardScreen = () => {
           onPress={() => setActiveTab('providers')}
         >
           <Text style={[styles.tabText, activeTab === 'providers' && styles.activeTabText]}>Nhà cung cấp</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'hospitals' && styles.activeTab]}
-          onPress={() => setActiveTab('hospitals')}
-        >
-          <Text style={[styles.tabText, activeTab === 'hospitals' && styles.activeTabText]}>Bệnh viện</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'reports' && styles.activeTab]}
@@ -149,22 +143,6 @@ const DashboardScreen = () => {
               <View style={styles.providerInfo}>
                 <Text style={styles.providerName}>{mockProvider.companyName}</Text>
                 <Text style={styles.providerMeta}>{mockProvider.totalCases} ca • {mockProvider.avgRating.toFixed(1)}⭐</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-            </View>
-          </View>
-        )}
-
-        {activeTab === 'hospitals' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Bệnh viện</Text>
-            <View key={mockHospital.id} style={styles.providerCard}>
-              <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.providerIcon}>
-                <FontAwesome5 name="hospital" size={24} color="#FFF" />
-              </LinearGradient>
-              <View style={styles.providerInfo}>
-                <Text style={styles.providerName}>{mockHospital.name}</Text>
-                <Text style={styles.providerMeta}>{mockHospital.totalCases} ca • {mockHospital.avgRating.toFixed(1)}⭐</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
             </View>
