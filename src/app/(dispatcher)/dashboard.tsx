@@ -1,17 +1,18 @@
+import { api } from '@/services/api';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  FlatList,
-  Platform,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Animated,
+    Dimensions,
+    FlatList,
+    Platform,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 
 // Safely import MapView only on Native platforms
@@ -32,49 +33,45 @@ if (Platform.OS !== 'web') {
 
 const { width, height } = Dimensions.get('window');
 
-const MOCK_CASES = [
-  {
-    id: '1',
-    type: 'Tai nạn giao thông',
-    status: 'Đang điều phối',
-    time: '2 phút trước',
-    address: '12 Chùa Bộc, Đống Đa, Hà Nội',
-    priority: 'Cao',
-    coordinates: { latitude: 21.0091, longitude: 105.8247 },
-  },
-  {
-    id: '2',
-    type: 'Cấp cứu tim mạch',
-    status: 'Đã nhận lệnh',
-    time: '5 phút trước',
-    address: '88 Láng Hạ, Đống Đa, Hà Nội',
-    priority: 'Khẩn cấp',
-    coordinates: { latitude: 21.0167, longitude: 105.8163 },
-  },
-  {
-    id: '3',
-    type: 'Sản khoa khẩn cấp',
-    status: 'Chờ xử lý',
-    time: '12 phút trước',
-    address: '191 Bà Triệu, Hai Bà Trưng, Hà Nội',
-    priority: 'Cao',
-    coordinates: { latitude: 21.0112, longitude: 105.8489 },
-  },
-  {
-    id: '4',
-    type: 'Đột quỵ',
-    status: 'Đang điều phối',
-    time: '1 phút trước',
-    address: 'Trần Duy Hưng, Cầu Giấy, Hà Nội',
-    priority: 'Khẩn cấp',
-    coordinates: { latitude: 21.0065, longitude: 105.7954 },
-  },
-];
-
 export default function DispatcherDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('map');
   const scanAnim = useRef(new Animated.Value(0)).current;
+  const [cases, setCases] = useState<any[]>([]);
+
+  // Fetch dispatch requests
+  const fetchRequests = async () => {
+    try {
+      const data = await api.getDispatchRequests();
+      const mapped = data.map((c: any, index: number) => {
+        // Calculate coordinates based on standard offsets if not fully defined in GPS
+        const latOffset = (index % 3 - 1) * 0.005;
+        const lngOffset = (index % 2 - 0.5) * 0.01;
+        
+        return {
+          id: c.id,
+          type: c.priority === 'critical' ? 'Cấp cứu nghiêm trọng' : 'Sự cố cấp cứu',
+          status: c.status === 'pending' ? 'Đang điều phối' : c.status === 'assigned' ? 'Đã nhận lệnh' : 'Chờ xử lý',
+          time: 'Vừa xong',
+          address: c.location?.address || 'Tọa độ khẩn cấp',
+          priority: c.priority === 'critical' ? 'Khẩn cấp' : c.priority === 'high' ? 'Cao' : 'Trung bình',
+          coordinates: { 
+            latitude: c.location?.lat || (21.015 + latOffset), 
+            longitude: c.location?.lng || (105.82 + lngOffset) 
+          },
+        };
+      });
+      setCases(mapped);
+    } catch (e) {
+      console.warn('Failed to load dispatch requests in dashboard:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchRequests();
+    const interval = setInterval(fetchRequests, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -139,7 +136,7 @@ export default function DispatcherDashboard() {
                 }}
                 customMapStyle={darkMapStyle}
               >
-                {MOCK_CASES.map(c => (
+                {cases.map(c => (
                   <MarkerComponent key={c.id} coordinate={c.coordinates}>
                     <View style={[styles.customMarker, { borderColor: c.priority === 'Khẩn cấp' ? '#F04438' : '#F79009' }]}>
                       <View style={[styles.markerPulse, { backgroundColor: c.priority === 'Khẩn cấp' ? '#F04438' : '#F79009' }]} />
@@ -205,7 +202,7 @@ export default function DispatcherDashboard() {
 
             <View style={styles.horizontalList}>
               <FlatList
-                data={MOCK_CASES}
+                data={cases}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyExtractor={item => item.id}
@@ -232,7 +229,7 @@ export default function DispatcherDashboard() {
           </View>
         ) : (
           <FlatList
-            data={MOCK_CASES}
+            data={cases}
             contentContainerStyle={styles.listPadding}
             keyExtractor={item => item.id}
             renderItem={({ item }) => (
@@ -300,7 +297,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: 120,
     backgroundColor: 'rgba(167, 139, 250, 0.05)',
-    blurRadius: 50,
   },
   header: {
     flexDirection: 'row',

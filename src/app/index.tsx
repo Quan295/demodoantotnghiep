@@ -1,743 +1,581 @@
-import { useTheme } from '@/hooks/use-theme';
-import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { api } from '@/services/api';
+import { mapApiRoleToLocal } from '@/services/config';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
-    Animated,
-    Dimensions,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    Vibration,
-    View
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { SafeAreaView as SafeAreaViewContext } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
+type AuthMode = 
+  | 'login' 
+  | 'registerPhone' 
+  | 'registerOtp' 
+  | 'registerDetails' 
+  | 'forgotPassword' 
+  | 'resetPassword';
 
-type Role = 'reporter' | 'driver' | 'dispatcher' | 'admin' | 'provider' | null;
-
-export default function WelcomeScreen() {
-  const theme = useTheme();
+export default function AuthScreen() {
   const router = useRouter();
-  const logoPulse = useRef(new Animated.Value(1)).current;
-  const [selectedRole, setSelectedRole] = useState<Role>(null);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('');
+
+  const [mode, setMode] = useState<AuthMode>('login');
   const [loading, setLoading] = useState(false);
 
-  React.useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(logoPulse, { toValue: 1.2, duration: 1500, useNativeDriver: true }),
-        Animated.timing(logoPulse, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
+  // Login fields
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
-  const handleSelectRole = (role: 'citizen' | 'driver' | 'dispatcher') => {
-    if (Platform.OS !== 'web') {
-      Vibration.vibrate(50);
-    }
-    setSelectedRole(role);
-  };
+  // Register fields
+  const [registerPhone, setRegisterPhone] = useState('');
+  const [registerOtp, setRegisterOtp] = useState('');
+  const [registerUsername, setRegisterUsername] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerFullName, setRegisterFullName] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
+
+  // Forgot/Reset password fields
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const handleLogin = async () => {
-    setLoading(true);
-    if (Platform.OS !== 'web') {
-      Vibration.vibrate(50);
+    if (!loginUsername || !loginPassword) {
+      Alert.alert('Lỗi', 'Vui lòng nhập tên đăng nhập và mật khẩu');
+      return;
     }
-    
-    // Giả lập kiểm tra tài khoản
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setLoading(false);
-    
-    // Logic điều hướng dựa trên Role
-    if (selectedRole === 'reporter') {
-      router.push('/(citizen)/sos');
-    } else if (selectedRole === 'driver') {
-      router.push('/(driver)/dashboard');
-    } else if (selectedRole === 'dispatcher') {
-      router.push('/(dispatcher)/dashboard');
-    } else if (selectedRole === 'admin') {
-      router.push('/(admin)/dashboard');
-    } else if (selectedRole === 'provider') {
-      router.push('/(provider)/dashboard');
-    }
-  };
 
-  const fillMockData = () => {
-    if (selectedRole === 'reporter') {
-      setPhone('0987654321');
-      setPassword('123456');
-    } else if (selectedRole === 'driver') {
-      setUsername('DRIVER-001');
-      setPassword('driver123');
-    } else if (selectedRole === 'dispatcher') {
-      setUsername('dispatcher');
-      setPassword('dispatcher123');
-    } else if (selectedRole === 'admin') {
-      setUsername('admin');
-      setPassword('admin123');
-    } else if (selectedRole === 'provider') {
-      setUsername('PROV-001');
-      setPassword('provider123');
+    try {
+      setLoading(true);
+      const loginData = await api.login(loginUsername, loginPassword);
+
+      const role = mapApiRoleToLocal(loginData.roles[0]);
+      switch (role) {
+        case 'admin':
+          router.replace('/(admin)/dashboard');
+          break;
+        case 'provider':
+          router.replace('/(provider)/dashboard');
+          break;
+        case 'dispatcher':
+          router.replace('/(dispatcher)/dashboard');
+          break;
+        case 'driver':
+          router.replace('/(driver)/dashboard');
+          break;
+        case 'reporter':
+        default:
+          router.replace('/(citizen)/sos');
+          break;
+      }
+    } catch (error: any) {
+      Alert.alert('Đăng nhập thất bại', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const getRoleInfo = () => {
-    switch (selectedRole) {
-      case 'reporter':
-        return {
-          icon: 'ambulance',
-          color: '#F04438',
-          title: 'Cổng Người Báo Cáo',
-          gradient: ['#F04438', '#D92D20'],
-          inputPlaceholder: 'Số điện thoại hoặc Email'
-        };
-      case 'driver':
-        return {
-          icon: 'userMd',
-          color: '#32D583',
-          title: 'Cổng Đội Cứu Hộ',
-          gradient: ['#32D583', '#064E3B'],
-          inputPlaceholder: 'Mã số định danh'
-        };
-      case 'dispatcher':
-        return {
-          icon: 'headset',
-          color: '#A78BFA',
-          title: 'Cổng Điều Phối',
-          gradient: ['#A78BFA', '#7C3AED'],
-          inputPlaceholder: 'Tài khoản hệ thống'
-        };
-      case 'admin':
-        return {
-          icon: 'shieldAlt',
-          color: '#F59E0B',
-          title: 'Cổng Quản Trị',
-          gradient: ['#F59E0B', '#D97706'],
-          inputPlaceholder: 'Tài khoản Admin'
-        };
-      case 'provider':
-        return {
-          icon: 'truckMedical',
-          color: '#10B981',
-          title: 'Cổng Nhà Cung Cấp',
-          gradient: ['#10B981', '#059669'],
-          inputPlaceholder: 'Mã Nhà Cung Cấp'
-        };
-      default:
-        return null;
+  const handleSendOtp = async (phoneNumber: string) => {
+    try {
+      setLoading(true);
+      await api.sendOtp(phoneNumber);
+      Alert.alert('Thành công', 'Mã OTP đã được gửi');
+      return true;
+    } catch (error: any) {
+      Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
+      return false;
+    } finally {
+      setLoading(false);
     }
   };
 
-  const roleInfo = getRoleInfo();
+  const handleVerifyOtp = async (phoneNumber: string, otpCode: string) => {
+    try {
+      setLoading(true);
+      await api.verifyOtp(phoneNumber, otpCode);
+      Alert.alert('Thành công', 'Xác minh OTP thành công');
+      return true;
+    } catch (error: any) {
+      Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (selectedRole && roleInfo) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-        
-        <View style={styles.bgContainer}>
-          <LinearGradient colors={['#090B0F', '#0D1117', '#151B26']} style={StyleSheet.absoluteFill} />
-          <View style={styles.glowTop} />
-          <View style={styles.glowCenter} />
-        </View>
+  const handleRegisterSendOtp = async () => {
+    if (!registerPhone) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại');
+      return;
+    }
+    const success = await handleSendOtp(registerPhone);
+    if (success) {
+      setMode('registerOtp');
+    }
+  };
 
-        <SafeAreaView style={styles.safeArea}>
-          <ScrollView 
-            showsVerticalScrollIndicator={false} 
-            contentContainerStyle={styles.scrollContent}
-          >
-            <View style={styles.loginHeader}>
-              <TouchableOpacity 
-                onPress={() => setSelectedRole(null)} 
-                style={styles.backBtn}
-              >
-                <Ionicons name="chevron-back" size={24} color="#FFF" />
-              </TouchableOpacity>
-              <View style={styles.headerTitleContainer}>
-                <Text style={styles.loginTitleText}>{roleInfo.title}</Text>
-                <Text style={styles.loginSubtitleText}>Vui lòng nhập thông tin để tiếp tục</Text>
-              </View>
-            </View>
+  const handleRegisterVerifyOtp = async () => {
+    if (!registerOtp) {
+      Alert.alert('Lỗi', 'Vui lòng nhập mã OTP');
+      return;
+    }
+    const success = await handleVerifyOtp(registerPhone, registerOtp);
+    if (success) {
+      setMode('registerDetails');
+    }
+  };
 
-            <View style={styles.roleIconLargeContainer}>
-              <LinearGradient colors={roleInfo.gradient} style={styles.roleIconLargeGradient}>
-                <FontAwesome5 name={roleInfo.icon} size={32} color="#FFF" />
-              </LinearGradient>
-              <View style={[styles.roleIconGlow, { backgroundColor: roleInfo.color }]} />
-            </View>
+  const handleRegister = async () => {
+    if (!registerUsername || !registerPassword || !registerFullName) {
+      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
+      return;
+    }
 
-            <View style={styles.loginForm}>
-              <View style={styles.inputContainer}>
-                <View style={styles.inputIconBox}>
-                  <Ionicons name={selectedRole === 'citizen' ? 'person' : 'fingerPrint'} size={20} color={roleInfo.color} />
-                </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder={roleInfo.inputPlaceholder}
-                  placeholderTextColor="#475467"
-                  value={selectedRole === 'citizen' ? phone : username}
-                  onChangeText={selectedRole === 'citizen' ? setPhone : setUsername}
-                  autoFocus
-                />
-              </View>
+    try {
+      setLoading(true);
+      await api.register({
+        username: registerUsername,
+        password: registerPassword,
+        fullName: registerFullName,
+        phoneNumber: registerPhone,
+        email: registerEmail,
+        otpCode: registerOtp,
+      });
+      Alert.alert('Thành công', 'Đăng ký tài khoản thành công! Vui lòng đăng nhập');
+      resetAuthStates();
+      setMode('login');
+    } catch (error: any) {
+      Alert.alert('Đăng ký thất bại', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-              <View style={styles.inputContainer}>
-                <View style={styles.inputIconBox}>
-                  <Ionicons name="lock-closed" size={20} color={roleInfo.color} />
-                </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Mật khẩu bảo mật"
-                  placeholderTextColor="#475467"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                />
-              </View>
+  const handleForgotSendOtp = async () => {
+    if (!forgotPhone) {
+      Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại');
+      return;
+    }
+    const success = await handleSendOtp(forgotPhone);
+    if (success) {
+      setMode('resetPassword');
+    }
+  };
 
-              <TouchableOpacity style={styles.forgotBtn}>
-                <Text style={[styles.forgotText, { color: roleInfo.color }]}>Quên mật khẩu?</Text>
-              </TouchableOpacity>
+  const handleResetPassword = async () => {
+    if (!forgotOtp || !newPassword) {
+      Alert.alert('Lỗi', 'Vui lòng điền đầy đủ thông tin');
+      return;
+    }
 
-              <TouchableOpacity 
-                style={[styles.loginBtn, { backgroundColor: roleInfo.color }]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                <LinearGradient colors={roleInfo.gradient} style={styles.loginBtnGradient}>
-                  {loading ? (
-                    <Animated.View style={{ transform: [{ scale: logoPulse }] }}>
-                      <Ionicons name="sync" size={20} color="#FFF" />
-                    </Animated.View>
-                  ) : (
-                    <Text style={styles.loginBtnText}>ĐĂNG NHẬP HỆ THỐNG</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+    try {
+      setLoading(true);
+      await api.resetPassword(forgotPhone, forgotOtp, newPassword);
+      Alert.alert('Thành công', 'Đặt lại mật khẩu thành công! Vui lòng đăng nhập');
+      resetAuthStates();
+      setMode('login');
+    } catch (error: any) {
+      Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-              <TouchableOpacity 
-                style={styles.mockDataBtn}
-                onPress={fillMockData}
-              >
-                <Text style={styles.mockDataText}>Dùng tài khoản Demo</Text>
-              </TouchableOpacity>
-
-              <View style={styles.loginFooter}>
-                <Text style={styles.footerText}>Bạn chưa có tài khoản?</Text>
-                <TouchableOpacity>
-                  <Text style={[styles.footerText, { color: roleInfo.color }]}>Đăng ký</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </View>
-    );
-  }
+  const resetAuthStates = () => {
+    setLoginUsername('');
+    setLoginPassword('');
+    setRegisterPhone('');
+    setRegisterOtp('');
+    setRegisterUsername('');
+    setRegisterPassword('');
+    setRegisterFullName('');
+    setRegisterEmail('');
+    setForgotPhone('');
+    setForgotOtp('');
+    setNewPassword('');
+  };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      
-      <View style={styles.bgContainer}>
-        <LinearGradient colors={['#090B0F', '#0D1117', '#151B26']} style={StyleSheet.absoluteFill} />
-        <View style={styles.glowTop} />
-        <View style={styles.glowCenter} />
-      </View>
+    <SafeAreaViewContext style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <View style={styles.header}>
+          <Text style={styles.appName}>Ứng Dụng Cứu Hộ</Text>
+          <Text style={styles.subtitle}>
+            {mode === 'login' && 'Đăng nhập để tiếp tục'}
+            {mode === 'registerPhone' && 'Đăng ký tài khoản'}
+            {mode === 'registerOtp' && 'Xác minh OTP'}
+            {mode === 'registerDetails' && 'Hoàn thành đăng ký'}
+            {mode === 'forgotPassword' && 'Lấy lại mật khẩu'}
+            {mode === 'resetPassword' && 'Đặt lại mật khẩu'}
+          </Text>
+        </View>
 
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView 
-          showsVerticalScrollIndicator={false} 
-          contentContainerStyle={styles.scrollContent}
-        >
-          <View style={styles.brandHeader}>
-            <View style={styles.logoBox}>
-              <LinearGradient
-                colors={['#F04438', '#B42318']}
-                style={styles.logoGradient}
-              >
-                <MaterialCommunityIcons name="heart-flash" size={40} color="#FFF" />
-              </LinearGradient>
-              <Animated.View style={[styles.logoPulseRing, { transform: [{ scale: logoPulse }], opacity: logoPulse.interpolate({ inputRange: [1, 1.2], outputRange: [0.3, 0] }) }]} />
+        {/* Login Form */}
+        {mode === 'login' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Tên đăng nhập</Text>
+              <TextInput
+                style={styles.input}
+                value={loginUsername}
+                onChangeText={setLoginUsername}
+                placeholder="Nhập tên đăng nhập"
+                autoCapitalize="none"
+              />
             </View>
-            <View style={styles.brandTextWrapper}>
-              <Text style={styles.brandMain}>115 SMART</Text>
-              <Text style={styles.brandSub}>DISPATCH SYSTEM</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Mật khẩu</Text>
+              <TextInput
+                style={styles.input}
+                value={loginPassword}
+                onChangeText={setLoginPassword}
+                placeholder="Nhập mật khẩu"
+                secureTextEntry
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.forgotLink}
+              onPress={() => setMode('forgotPassword')}
+            >
+              <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang xử lý...' : 'Đăng nhập'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>Chưa có tài khoản?</Text>
+              <TouchableOpacity onPress={() => {
+                resetAuthStates();
+                setMode('registerPhone');
+              }}>
+                <Text style={styles.linkText}>Đăng ký</Text>
+              </TouchableOpacity>
             </View>
           </View>
+        )}
 
-          <View style={styles.heroSection}>
-            <Text style={styles.heroTitle}>Phản ứng nhanh,{'\n'}Cứu hộ thông minh</Text>
-            <Text style={styles.heroDesc}>
-              Hệ thống kết nối trực tiếp nạn nhân, đội cứu hộ và trung tâm điều phối 115 bằng công nghệ AI và định vị PostGIS.
-            </Text>
-          </View>
-
-          <View style={styles.roleGrid}>
-            <Text style={styles.gridLabel}>CHỌN VAI TRÒ CỦA BẠN</Text>
-            
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('reporter')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#F04438', '#D92D20']} style={styles.iconInner}>
-                    <FontAwesome5 name="ambulance" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Người Báo Cáo</Text>
-                  <Text style={styles.roleDesc}>Yêu cầu cứu trợ SOS khẩn cấp</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#F04438" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('driver')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#32D583', '#064E3B']} style={styles.iconInner}>
-                    <FontAwesome5 name="userMd" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Đội Cứu Hộ</Text>
-                  <Text style={styles.roleDesc}>Nhận lệnh và định vị hiện trường</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#32D583" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('dispatcher')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#A78BFA', '#7C3AED']} style={styles.iconInner}>
-                    <FontAwesome5 name="headset" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Điều Phối Viên</Text>
-                  <Text style={styles.roleDesc}>Trung tâm điều hành & Phân tích AI</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#A78BFA" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('provider')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#10B981', '#059669']} style={styles.iconInner}>
-                    <FontAwesome5 name="truckMedical" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Nhà Cung Cấp</Text>
-                  <Text style={styles.roleDesc}>Quản lý xe, xem doanh thu, hiệu suất</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#10B981" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              activeOpacity={0.9} 
-              onPress={() => handleSelectRole('admin')}
-              style={styles.glassCard}
-            >
-              <LinearGradient colors={['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.03)']} style={styles.glassGradient}>
-                <View style={styles.roleIconBox}>
-                  <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.iconInner}>
-                    <FontAwesome5 name="shieldAlt" size={20} color="#FFF" />
-                  </LinearGradient>
-                </View>
-                <View style={styles.roleTextContainer}>
-                  <Text style={styles.roleTitle}>Quản Trị Viên</Text>
-                  <Text style={styles.roleDesc}>Quản lý hệ thống, thống kê toàn bộ</Text>
-                </View>
-                <View style={styles.arrowBox}>
-                  <Ionicons name="arrow-forward" size={18} color="#F59E0B" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.techFooter}>
-            <View style={styles.techLine} />
-            <View style={styles.techList}>
-              <TechBadge label="PostGIS" icon="database" />
-              <TechBadge label="AI Voice" icon="robot" />
-              <TechBadge label="Live Maps" icon="map-marker-path" />
+        {/* Register Phone Form */}
+        {mode === 'registerPhone' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Số điện thoại</Text>
+              <TextInput
+                style={styles.input}
+                value={registerPhone}
+                onChangeText={setRegisterPhone}
+                placeholder="Nhập số điện thoại"
+                keyboardType="phone-pad"
+              />
             </View>
-            <Text style={styles.copyright}>© 2026 Smart Emergency Solutions</Text>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleRegisterSendOtp}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                resetAuthStates();
+                setMode('login');
+              }}
+            >
+              <Text style={styles.backText}>Quay lại đăng nhập</Text>
+            </TouchableOpacity>
           </View>
-        </ScrollView>
-      </SafeAreaView>
-    </View>
+        )}
+
+        {/* Register OTP Form */}
+        {mode === 'registerOtp' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Mã OTP</Text>
+              <TextInput
+                style={styles.input}
+                value={registerOtp}
+                onChangeText={setRegisterOtp}
+                placeholder="Nhập mã OTP"
+                keyboardType="number-pad"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleRegisterVerifyOtp}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang xác minh...' : 'Xác minh OTP'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setMode('registerPhone')}
+            >
+              <Text style={styles.backText}>Quay lại</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Register Details Form */}
+        {mode === 'registerDetails' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Họ và tên</Text>
+              <TextInput
+                style={styles.input}
+                value={registerFullName}
+                onChangeText={setRegisterFullName}
+                placeholder="Nhập họ và tên"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email (tùy chọn)</Text>
+              <TextInput
+                style={styles.input}
+                value={registerEmail}
+                onChangeText={setRegisterEmail}
+                placeholder="Nhập email"
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Tên đăng nhập</Text>
+              <TextInput
+                style={styles.input}
+                value={registerUsername}
+                onChangeText={setRegisterUsername}
+                placeholder="Nhập tên đăng nhập"
+                autoCapitalize="none"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Mật khẩu</Text>
+              <TextInput
+                style={styles.input}
+                value={registerPassword}
+                onChangeText={setRegisterPassword}
+                placeholder="Nhập mật khẩu"
+                secureTextEntry
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleRegister}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang xử lý...' : 'Hoàn thành đăng ký'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setMode('registerOtp')}
+            >
+              <Text style={styles.backText}>Quay lại</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Forgot Password Form */}
+        {mode === 'forgotPassword' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Số điện thoại</Text>
+              <TextInput
+                style={styles.input}
+                value={forgotPhone}
+                onChangeText={setForgotPhone}
+                placeholder="Nhập số điện thoại đã đăng ký"
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleForgotSendOtp}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => {
+                resetAuthStates();
+                setMode('login');
+              }}
+            >
+              <Text style={styles.backText}>Quay lại đăng nhập</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Reset Password Form */}
+        {mode === 'resetPassword' && (
+          <View style={styles.form}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Mã OTP</Text>
+              <TextInput
+                style={styles.input}
+                value={forgotOtp}
+                onChangeText={setForgotOtp}
+                placeholder="Nhập mã OTP"
+                keyboardType="number-pad"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Mật khẩu mới</Text>
+              <TextInput
+                style={styles.input}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Nhập mật khẩu mới"
+                secureTextEntry
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={handleResetPassword}
+              disabled={loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Đang xử lý...' : 'Đặt lại mật khẩu'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => setMode('forgotPassword')}
+            >
+              <Text style={styles.backText}>Quay lại</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaViewContext>
   );
 }
-
-const TechBadge = ({ label, icon }: any) => (
-  <View style={styles.techBadgeWrapper}>
-    <MaterialCommunityIcons name={icon} size={14} color="#475467" />
-    <Text style={styles.techBadgeText}>{label}</Text>
-  </View>
-);
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#090B0F',
-  },
-  bgContainer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-  },
-  glowTop: {
-    position: 'absolute',
-    top: -height * 0.2,
-    right: -width * 0.3,
-    width: width,
-    height: width,
-    borderRadius: width / 2,
-    backgroundColor: 'rgba(240, 68, 56, 0.08)',
-    blurRadius: 100,
-  },
-  glowCenter: {
-    position: 'absolute',
-    bottom: height * 0.1,
-    left: -width * 0.4,
-    width: width * 1.2,
-    height: width * 1.2,
-    borderRadius: width * 0.6,
-    backgroundColor: 'rgba(124, 58, 237, 0.05)',
-    blurRadius: 100,
-  },
-  safeArea: {
-    flex: 1,
+    backgroundColor: '#ffffff',
   },
   scrollContent: {
-    paddingHorizontal: 28,
-    paddingTop: 40,
-    paddingBottom: 40,
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingVertical: 40,
   },
-  brandHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 48,
+  header: {
+    marginBottom: 40,
   },
-  logoBox: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoGradient: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 10,
-    shadowColor: '#F04438',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-  },
-  logoPulseRing: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 1,
-    borderColor: 'rgba(240, 68, 56, 0.2)',
-  },
-  brandTextWrapper: {
-    marginLeft: 18,
-  },
-  brandMain: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#FFF',
-    letterSpacing: 1,
-  },
-  brandSub: {
-    fontSize: 10,
+  appName: {
+    fontSize: 32,
     fontWeight: '800',
-    color: '#F04438',
-    letterSpacing: 2,
-    marginTop: 2,
-  },
-  heroSection: {
-    marginBottom: 48,
-  },
-  heroTitle: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: '#FFF',
-    lineHeight: 42,
-    letterSpacing: -1,
-  },
-  heroDesc: {
-    fontSize: 15,
-    color: '#98A2B3',
-    lineHeight: 24,
-    marginTop: 16,
-    fontWeight: '500',
-  },
-  roleGrid: {
-    gap: 16,
-  },
-  gridLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#475467',
-    letterSpacing: 2.5,
+    color: '#111827',
     marginBottom: 8,
   },
-  glassCard: {
-    borderRadius: 24,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+  subtitle: {
+    fontSize: 16,
+    color: '#6b7280',
   },
-  glassGradient: {
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  roleIconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    padding: 2,
-  },
-  iconInner: {
-    flex: 1,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  roleTextContainer: {
-    flex: 1,
-    marginLeft: 16,
-  },
-  roleTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFF',
-  },
-  roleDesc: {
-    fontSize: 12,
-    color: '#98A2B3',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  arrowBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  techFooter: {
-    marginTop: 60,
-    alignItems: 'center',
-  },
-  techLine: {
-    width: 40,
-    height: 2,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 24,
-  },
-  techList: {
-    flexDirection: 'row',
+  form: {
     gap: 20,
-    marginBottom: 20,
   },
-  techBadgeWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  techBadgeText: {
-    fontSize: 11,
-    color: '#475467',
-    fontWeight: '700',
-  },
-  copyright: {
-    fontSize: 10,
-    color: '#344054',
-    fontWeight: '600',
-  },
-  loginHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 40,
-    paddingHorizontal: 4,
-  },
-  backBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  headerTitleContainer: {
-    marginLeft: 20,
-  },
-  loginTitleText: {
-    color: '#FFF',
-    fontSize: 24,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  loginSubtitleText: {
-    color: '#475467',
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  roleIconLargeContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 120,
-    marginBottom: 20,
-  },
-  roleIconLargeGradient: {
-    width: 80,
-    height: 80,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    zIndex: 2,
-  },
-  roleIconGlow: {
-    position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    opacity: 0.3,
-    blurRadius: 40,
-    zIndex: 1,
-  },
-  loginForm: {
-    marginTop: 10,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 22,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  inputIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  input: {
-    flex: 1,
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  forgotBtn: {
-    alignSelf: 'flex-end',
-    marginBottom: 24,
-    paddingRight: 8,
-  },
-  forgotText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  loginBtn: {
-    borderRadius: 26,
-    overflow: 'hidden',
-    height: 64,
-    elevation: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-  },
-  loginBtnGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loginBtnText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  loginFooter: {
-    marginTop: 24,
-    flexDirection: 'row',
-    justifyContent: 'center',
+  inputGroup: {
     gap: 8,
   },
-  footerText: {
-    color: '#475467',
+  label: {
     fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#f9fafb',
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+    marginBottom: 8,
+  },
+  forgotText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '500',
+  },
+  button: {
+    backgroundColor: '#10b981',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
     fontWeight: '700',
   },
-  mockDataBtn: {
-    marginTop: 16,
+  backButton: {
+    marginTop: 12,
     alignItems: 'center',
-    padding: 8,
   },
-  mockDataText: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
+  backText: {
+    fontSize: 14,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  footer: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 24,
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#6b7280',
+  },
+  linkText: {
+    fontSize: 14,
+    color: '#10b981',
     fontWeight: '600',
-    textDecorationLine: 'underline',
   },
 });

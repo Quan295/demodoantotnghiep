@@ -15,6 +15,12 @@ export interface User {
   email: string;
   phone: string;
   createdAt: Date;
+  balance?: number;
+  avgRating?: number;
+  totalRevenue?: number;
+  totalCases?: number;
+  phoneNumber?: string;
+  username?: string;
 }
 
 export interface Reporter extends User {

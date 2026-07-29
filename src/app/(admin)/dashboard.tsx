@@ -1,21 +1,39 @@
-import { mockCases, mockProvider, mockSystemStats } from '@/data/mockData';
+import { api } from '@/services/api';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-    SafeAreaView,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const DashboardScreen = () => {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'overview' | 'providers' | 'reports'>('overview');
+  const [loading, setLoading] = useState(true);
+  const [users, setUsers] = useState<any[]>([]);
+  const [providers, setProviders] = useState<any[]>([]);
+  const [dispatchResources, setDispatchResources] = useState<any[]>([]);
+  const [serviceTypes, setServiceTypes] = useState<any[]>([]);
+  const [operationZones, setOperationZones] = useState<any[]>([]);
+  const [dispatchRequests, setDispatchRequests] = useState<any[]>([]);
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error('Logout error:', e);
+    } finally {
+      router.replace('/');
+    }
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -24,18 +42,51 @@ const DashboardScreen = () => {
     }).format(amount);
   };
 
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [usersData, providersData, resourcesData, serviceTypesData, zonesData, requestsData] = await Promise.all([
+          api.getUsers(),
+          api.getProviders(),
+          api.getDispatchResources(),
+          api.getServiceTypes(),
+          api.getOperationZones(),
+          api.getDispatchRequests(),
+        ]);
+        setUsers(usersData);
+        setProviders(providersData);
+        setDispatchResources(resourcesData);
+        setServiceTypes(serviceTypesData);
+        setOperationZones(zonesData);
+        setDispatchRequests(requestsData);
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#D97706" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="#D97706" />
       <LinearGradient colors={['#D97706', '#B45309']} style={styles.header}>
         <SafeAreaView>
           <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#FFF" />
-            </TouchableOpacity>
+            <View style={{ width: 24 }} />
             <Text style={styles.headerTitle}>Cổng Quản Trị</Text>
-            <TouchableOpacity onPress={() => {}}>
-              <Ionicons name="notifications-outline" size={24} color="#FFF" />
+            <TouchableOpacity onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={24} color="#FFF" />
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -65,123 +116,112 @@ const DashboardScreen = () => {
       <ScrollView style={styles.content}>
         {activeTab === 'overview' && (
           <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tổng quan</Text>
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
-                <LinearGradient colors={['#D97706', '#B45309']} style={styles.statIcon}>
-                  <FontAwesome5 name="ambulance" size={20} color="#FFF" />
+                <LinearGradient colors={['#F04438', '#D92D20']} style={styles.statIcon}>
+                  <FontAwesome5 name="users" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockSystemStats.totalCases}</Text>
-                <Text style={styles.statLabel}>Tổng ca</Text>
+                <Text style={styles.statValue}>{users.length}</Text>
+                <Text style={styles.statLabel}>Người dùng</Text>
               </View>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#10B981', '#059669']} style={styles.statIcon}>
-                  <FontAwesome5 name="building" size={20} color="#FFF" />
+                  <MaterialCommunityIcons name="truck-plus" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockSystemStats.totalProviders + mockSystemStats.totalHospitals}</Text>
-                <Text style={styles.statLabel}>Đối tác</Text>
+                <Text style={styles.statValue}>{providers.length}</Text>
+                <Text style={styles.statLabel}>Nhà cung cấp</Text>
               </View>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.statIcon}>
-                  <FontAwesome5 name="coins" size={20} color="#FFF" />
+                  <FontAwesome5 name="ambulance" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{formatCurrency(mockSystemStats.totalRevenue).replace('₫', '')}đ</Text>
-                <Text style={styles.statLabel}>Doanh thu</Text>
+                <Text style={styles.statValue}>{dispatchResources.length}</Text>
+                <Text style={styles.statLabel}>Xe cứu thương</Text>
               </View>
               <View style={styles.statCard}>
-                <LinearGradient colors={['#EF4444', '#DC2626']} style={styles.statIcon}>
-                  <FontAwesome5 name="star" size={20} color="#FFF" />
+                <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.statIcon}>
+                  <FontAwesome5 name="headset" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockSystemStats.avgRating.toFixed(1)}</Text>
-                <Text style={styles.statLabel}>Đánh giá TB</Text>
+                <Text style={styles.statValue}>{dispatchRequests.length}</Text>
+                <Text style={styles.statLabel}>Yêu cầu</Text>
               </View>
             </View>
-
-            <Text style={styles.sectionTitle}>⚠️ Cảnh báo</Text>
-            {mockSystemStats.flaggedProviders.map((fp, i) => (
-              <View key={i} style={styles.alertCard}>
-                <LinearGradient colors={['#FEF3C7', '#FDE68A']} style={styles.alertContent}>
-                  <MaterialCommunityIcons name="alert-outline" size={24} color="#92400E" />
-                  <View style={styles.alertMeta}>
-                    <Text style={styles.alertTitle}>{fp.providerName}</Text>
-                    <Text style={styles.alertDesc}>Tỷ lệ khiếu nại: {fp.complaintRate}%</Text>
-                  </View>
-                </LinearGradient>
-              </View>
-            ))}
-
-            <Text style={styles.sectionTitle}>Ca gần đây</Text>
-            {mockCases.map((c) => (
-              <View key={c.id} style={styles.caseCard}>
+            
+            <Text style={styles.sectionTitle}>Yêu cầu gần đây</Text>
+            {dispatchRequests.slice(0, 5).map((req) => (
+              <View key={req.id} style={styles.caseCard}>
                 <View style={styles.caseHeader}>
-                  <Text style={styles.caseId}>{c.id}</Text>
-                  <View style={[
-                    styles.caseStatus,
-                    { backgroundColor: c.status === 'completed' ? '#10B98120' : c.status === 'in-progress' ? '#F59E0B20' : '#6B728020' }
-                  ]}>
-                    <Text style={[
-                      styles.caseStatusText,
-                      { color: c.status === 'completed' ? '#10B981' : c.status === 'in-progress' ? '#F59E0B' : '#6B7280' }
-                    ]}>
-                      {c.status === 'completed' ? 'Hoàn thành' : c.status === 'in-progress' ? 'Đang xử lý' : 'Chờ'}
+                  <Text style={styles.caseId}>#{req.id}</Text>
+                  <View style={[styles.caseStatus, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
+                    <Text style={[styles.caseStatusText, { color: '#F59E0B' }]}>
+                      {req.status || 'Mới'}
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.caseDesc}>{c.description}</Text>
-                <Text style={styles.caseAmount}>{formatCurrency(c.amount)}</Text>
+                <Text style={styles.caseDesc}>
+                  {req.description || 'Yêu cầu cấp cứu'}
+                </Text>
               </View>
             ))}
+            {dispatchRequests.length === 0 && (
+              <Text style={styles.emptyText}>Chưa có yêu cầu nào</Text>
+            )}
           </View>
         )}
 
         {activeTab === 'providers' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Top Nhà cung cấp</Text>
-            <View key={mockProvider.id} style={styles.providerCard}>
-              <LinearGradient colors={['#10B981', '#059669']} style={styles.providerIcon}>
-                <FontAwesome5 name="truckMedical" size={24} color="#FFF" />
-              </LinearGradient>
-              <View style={styles.providerInfo}>
-                <Text style={styles.providerName}>{mockProvider.companyName}</Text>
-                <Text style={styles.providerMeta}>{mockProvider.totalCases} ca • {mockProvider.avgRating.toFixed(1)}⭐</Text>
+            <Text style={styles.sectionTitle}>Nhà cung cấp</Text>
+            {providers.map((provider) => (
+              <View key={provider.id} style={styles.providerCard}>
+                <LinearGradient colors={['#10B981', '#059669']} style={styles.providerIcon}>
+                  <FontAwesome5 name="clinic-medical" size={20} color="#FFF" />
+                </LinearGradient>
+                <View style={styles.providerInfo}>
+                  <Text style={styles.providerName}>{provider.name || 'Nhà cung cấp'}</Text>
+                  <Text style={styles.providerMeta}>
+                    {provider.phoneNumber || provider.email || 'Chưa có thông tin'}
+                  </Text>
+                </View>
               </View>
-              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
-            </View>
+            ))}
+            {providers.length === 0 && (
+              <Text style={styles.emptyText}>Chưa có nhà cung cấp nào</Text>
+            )}
           </View>
         )}
 
         {activeTab === 'reports' && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Báo cáo thống kê</Text>
-            <TouchableOpacity style={styles.reportCard}>
-              <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.reportIcon}>
-                <Ionicons name="document-text" size={28} color="#FFF" />
+            <Text style={styles.sectionTitle}>Báo cáo</Text>
+            <View style={styles.reportCard}>
+              <LinearGradient colors={['#F04438', '#D92D20']} style={styles.reportIcon}>
+                <MaterialCommunityIcons name="chart-bar" size={28} color="#FFF" />
               </LinearGradient>
               <View style={styles.reportInfo}>
-                <Text style={styles.reportTitle}>Báo cáo doanh thu tháng</Text>
-                <Text style={styles.reportDesc}>Xem chi tiết doanh thu, phí dịch vụ</Text>
+                <Text style={styles.reportTitle}>Tổng số ca cấp cứu</Text>
+                <Text style={styles.reportDesc}>{dispatchRequests.length} ca</Text>
               </View>
-              <Ionicons name="download-outline" size={24} color="#9CA3AF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.reportCard}>
+            </View>
+            <View style={styles.reportCard}>
               <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.reportIcon}>
-                <Ionicons name="bar-chart" size={28} color="#FFF" />
+                <MaterialCommunityIcons name="map-marker-radius" size={28} color="#FFF" />
               </LinearGradient>
               <View style={styles.reportInfo}>
-                <Text style={styles.reportTitle}>Báo cáo hiệu suất</Text>
-                <Text style={styles.reportDesc}>Thống kê hiệu suất các nhà cung cấp</Text>
+                <Text style={styles.reportTitle}>Vùng hoạt động</Text>
+                <Text style={styles.reportDesc}>{operationZones.length} vùng</Text>
               </View>
-              <Ionicons name="download-outline" size={24} color="#9CA3AF" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.reportCard}>
+            </View>
+            <View style={styles.reportCard}>
               <LinearGradient colors={['#10B981', '#059669']} style={styles.reportIcon}>
-                <Ionicons name="chatbubbles" size={28} color="#FFF" />
+                <MaterialCommunityIcons name="star" size={28} color="#FFF" />
               </LinearGradient>
               <View style={styles.reportInfo}>
-                <Text style={styles.reportTitle}>Báo cáo đánh giá</Text>
-                <Text style={styles.reportDesc}>Tổng hợp đánh giá, feedback</Text>
+                <Text style={styles.reportTitle}>Dịch vụ</Text>
+                <Text style={styles.reportDesc}>{serviceTypes.length} loại</Text>
               </View>
-              <Ionicons name="download-outline" size={24} color="#9CA3AF" />
-            </TouchableOpacity>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -193,6 +233,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 40,
   },
   header: {
     paddingBottom: 20,

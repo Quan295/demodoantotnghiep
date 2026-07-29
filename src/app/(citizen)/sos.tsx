@@ -1,726 +1,512 @@
-import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { api } from '@/services/api';
+import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
-  Easing,
-  Platform,
-  SafeAreaView,
+  FlatList,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
-  Vibration,
-  View
+  View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
-
-export default function SOSScreen() {
-  const router = useRouter();
-  
-  // App states
-  const [loading, setLoading] = useState(false);
-  const [statusText, setStatusText] = useState('');
-  const [isPressing, setIsPressing] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
-  const [isThirdParty, setIsThirdParty] = useState(false);
-  const [evidenceAttached, setEvidenceAttached] = useState(false);
-
-  useEffect(() => {
-    // Show terms on mount
-    setShowTerms(true);
-  }, []);
-  
-  // Animation values
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const radarAnim = useRef(new Animated.Value(0)).current;
-  const rotationAnim = useRef(new Animated.Value(0)).current;
-  const shakeAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const blipAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Pulse animation for the button
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
-
-    // Radar scanning (rings)
-    const radar = Animated.loop(
-      Animated.timing(radarAnim, { toValue: 1, duration: 3000, easing: Easing.linear, useNativeDriver: true })
-    );
-    radar.start();
-
-    // Radar rotation (scanner line)
-    const rotation = Animated.loop(
-      Animated.timing(rotationAnim, { toValue: 1, duration: 4000, easing: Easing.linear, useNativeDriver: true })
-    );
-    rotation.start();
-
-    // Blips (dots appearing)
-    const blips = Animated.loop(
-      Animated.sequence([
-        Animated.timing(blipAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
-        Animated.timing(blipAnim, { toValue: 0, duration: 1500, useNativeDriver: true }),
-      ])
-    );
-    blips.start();
-
-    return () => {
-      pulse.stop();
-      radar.stop();
-      rotation.stop();
-      blips.stop();
-    };
-  }, []);
-
-  const handlePressIn = () => {
-    setIsPressing(true);
-    Animated.parallel([
-      Animated.timing(progressAnim, { toValue: 1, duration: 2000, useNativeDriver: false }),
-      Animated.spring(scaleAnim, { toValue: 0.85, useNativeDriver: true })
-    ]).start(({ finished }) => {
-      if (finished) handleSOSTrigger();
-    });
-    if (Platform.OS !== 'web') Vibration.vibrate([0, 100, 100, 100], true);
-  };
-
-  const handlePressOut = () => {
-    setIsPressing(false);
-    Animated.parallel([
-      Animated.timing(progressAnim, { toValue: 0, duration: 300, useNativeDriver: false }),
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true })
-    ]).start();
-    if (Platform.OS !== 'web') Vibration.cancel();
-  };
-
-  const triggerShake = () => {
-    Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
-    ]).start();
-  };
-
-  const handleSOSTrigger = async () => {
-    if (isThirdParty && !evidenceAttached) {
-      Alert.alert('Minh chứng khẩn cấp', 'Vui lòng đính kèm hình ảnh hoặc video hiện trường khi gửi hộ người khác để chống báo cáo giả mạo.');
-      return;
-    }
-    
-    if (Platform.OS !== 'web') Vibration.vibrate(500);
-    triggerShake();
-    setLoading(true);
-    setStatusText('Đang quét tín hiệu GPS vệ tinh...');
-
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') throw new Error('PERMISSION_DENIED');
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.BestForNavigation,
-      });
-
-      setStatusText('Đang truyền tọa độ khẩn cấp...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      setLoading(false);
-      router.push({
-        pathname: '/(citizen)/tracking',
-        params: { 
-          lat: position.coords.latitude, 
-          lng: position.coords.longitude, 
-          acc: position.coords.accuracy 
-        }
-      });
-
-    } catch (error: any) {
-      setLoading(false);
-      Alert.alert('Lỗi Kết Nối', 'Vui lòng thử lại!', [{ text: 'ĐÓNG' }]);
-    }
-  };
-
-  const handleVoiceSOS = async () => {
-    setLoading(true);
-    setStatusText('Đang ghi âm và lấy vị trí...');
-    
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') throw new Error('PERMISSION_DENIED');
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-
-      setStatusText('Đang gửi dữ liệu thoại & tọa độ...');
-      await new Promise(resolve => setTimeout(resolve, 2500));
-
-      setLoading(false);
-      router.push({
-        pathname: '/(citizen)/tracking',
-        params: { 
-          lat: position.coords.latitude, 
-          lng: position.coords.longitude,
-          mode: 'voice'
-        }
-      });
-    } catch (error) {
-      setLoading(false);
-      Alert.alert('Lỗi', 'Không thể gửi dữ liệu khẩn cấp.');
-    }
-  };
-
-  const rotate = rotationAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  const radarOpacity = radarAnim.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.6, 0.3, 0],
-  });
-
-  const radarScale = radarAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 2.5],
-  });
-
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0%', '100%'],
-  });
-
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <LinearGradient colors={['#090B0F', '#151B26']} style={styles.gradient}>
-        <SafeAreaView style={styles.safeArea}>
-          
-          <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.replace('/')} style={styles.closeBtn}>
-              <Ionicons name="chevron-back" size={24} color="#FFF" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>CRISIS COMMAND CENTER</Text>
-            <View style={{ width: 44 }} />
-          </View>
-
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.infoBox}>
-              <View style={styles.alertIconBox}>
-                <MaterialCommunityIcons name="broadcast" size={40} color="#F04438" />
-              </View>
-              <Text style={styles.mainTitle}>Tình Trạng Khẩn Cấp?</Text>
-              <Text style={styles.subTitle}>
-                Nhấn giữ nút SOS để kích hoạt quy trình ứng cứu đa tầng qua vệ tinh.
-              </Text>
-            </View>
-
-            <View style={styles.radarContainer}>
-              {/* Background Grid */}
-              <View style={styles.gridOverlay}>
-                {[...Array(6)].map((_, i) => (
-                  <View key={`ring-${i}`} style={[styles.staticRing, { width: (i + 1) * 50, height: (i + 1) * 50, borderRadius: ((i + 1) * 50) / 2 }]} />
-                ))}
-                <View style={styles.crosshairV} />
-                <View style={styles.crosshairH} />
-              </View>
-
-              {/* Radar Rings Animation */}
-              <Animated.View style={[styles.radarRing, { transform: [{ scale: radarScale }], opacity: radarOpacity }]} />
-              
-              {/* Rotating Scanner Line */}
-              <Animated.View style={[styles.scannerContainer, { transform: [{ rotate }] }]}>
-                <LinearGradient
-                  colors={['rgba(240, 68, 56, 0.5)', 'transparent']}
-                  style={styles.scannerLine}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                />
-              </Animated.View>
-
-              {/* Blips (Random signals) */}
-              <Animated.View style={[styles.blip, { top: 80, left: 100, opacity: blipAnim }]} />
-              <Animated.View style={[styles.blip, { bottom: 100, right: 70, opacity: blipAnim }]} />
-
-              {/* SOS Main Button */}
-              <Animated.View style={{ transform: [{ translateX: shakeAnim }, { scale: scaleAnim }] }}>
-                <TouchableOpacity 
-                  activeOpacity={1}
-                  onPressIn={handlePressIn}
-                  onPressOut={handlePressOut}
-                  style={styles.sosButton}
-                >
-                  <LinearGradient
-                    colors={isPressing ? ['#D92D20', '#B42318'] : ['#F04438', '#D92D20']}
-                    style={styles.sosGradient}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="large" color="#FFF" />
-                    ) : (
-                      <>
-                        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                          <Text style={styles.sosText}>SOS</Text>
-                        </Animated.View>
-                        <Text style={styles.sosSubText}>GIỮ 2S ĐỂ GỬI</Text>
-                      </>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </Animated.View>
-
-              {isPressing && !loading && (
-                <View style={styles.pressProgressContainer}>
-                  <Animated.View style={[styles.pressProgressBar, { width: progressWidth }]} />
-                </View>
-              )}
-            </View>
-
-            <View style={styles.statusBox}>
-              {loading ? (
-                <View style={styles.scanningBox}>
-                  <ActivityIndicator color="#F04438" size="small" />
-                  <Text style={styles.statusText}>{statusText}</Text>
-                </View>
-              ) : (
-                <View style={styles.readyBox}>
-                  <View style={styles.dot} />
-                  <Text style={styles.readyText}>Tín hiệu ổn định (Ready)</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.gridContainer}>
-              <Text style={styles.gridLabel}>CẤU HÌNH GỬI TIN</Text>
-              <View style={styles.configRow}>
-                <TouchableOpacity 
-                  style={[styles.configCard, isThirdParty && styles.configCardActive]}
-                  onPress={() => setIsThirdParty(!isThirdParty)}
-                >
-                  <MaterialCommunityIcons name="account-group" size={24} color={isThirdParty ? '#F04438' : '#475467'} />
-                  <Text style={[styles.configText, isThirdParty && styles.configTextActive]}>Gửi hộ người thân</Text>
-                </TouchableOpacity>
-
-                {isThirdParty && (
-                  <TouchableOpacity 
-                    style={[styles.configCard, evidenceAttached && styles.configCardActive]}
-                    onPress={() => setEvidenceAttached(!evidenceAttached)}
-                  >
-                    <MaterialCommunityIcons name="camera-check" size={24} color={evidenceAttached ? '#32D583' : '#475467'} />
-                    <Text style={[styles.configText, evidenceAttached && styles.configTextActive]}>
-                      {evidenceAttached ? 'Đã có minh chứng' : 'Thêm minh chứng'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              <Text style={styles.gridLabel}>LOẠI HÌNH KHẨN CẤP</Text>
-              <View style={styles.actionGrid}>
-                <QuickCard icon="car-crash" label="Tai nạn" color="#F04438" />
-                <QuickCard icon="heartbeat" label="Đột quỵ" color="#F04438" />
-                <QuickCard icon="fire" label="Hỏa hoạn" color="#F79009" />
-              </View>
-            </View>
-          </ScrollView>
-
-          {/* Anti-Fraud Terms Modal (Mock) */}
-          {showTerms && (
-            <View style={styles.modalOverlay}>
-              <View style={styles.termsCard}>
-                <View style={styles.termsHeader}>
-                  <MaterialCommunityIcons name="shield-lock" size={28} color="#F04438" />
-                  <Text style={styles.termsTitle}>CHỐNG GIẢ MẠO & QUY ĐỊNH</Text>
-                </View>
-                <ScrollView style={styles.termsBody}>
-                  <Text style={styles.termsText}>
-                    1. Mọi hành vi gửi SOS giả mạo sẽ bị truy cứu trách nhiệm theo quy định của pháp luật.{'\n\n'}
-                    2. Khi gửi hộ người thân, hệ thống bắt buộc yêu cầu minh chứng hình ảnh/video hiện trường.{'\n\n'}
-                    3. Vị trí GPS của bạn sẽ được tự động ghi lại để đối soát với đơn vị cứu hộ.{'\n\n'}
-                    4. Dữ liệu âm thanh được phân tích bởi AI (Whisper/BERT) để xác thực độ khẩn cấp.
-                  </Text>
-                </ScrollView>
-                <TouchableOpacity style={styles.termsBtn} onPress={() => setShowTerms(false)}>
-                  <Text style={styles.termsBtnText}>TÔI ĐÃ HIỂU & ĐỒNG Ý</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          <TouchableOpacity 
-            style={styles.callFab}
-            onPress={handleVoiceSOS}
-          >
-            <LinearGradient colors={['#F04438', '#B42318']} style={styles.fabGradient}>
-              <MaterialCommunityIcons name="microphone-settings" size={24} color="#FFF" />
-              <Text style={styles.fabText}>GỬI THOẠI & ĐỊNH VỊ</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-        </SafeAreaView>
-      </LinearGradient>
-    </View>
-  );
+interface EmergencyCall {
+  id: string;
+  status: string;
+  description?: string;
+  createdAt: string;
+  latitude?: number;
+  longitude?: number;
 }
 
-const QuickCard = ({ icon, label, color }: any) => (
-  <TouchableOpacity style={styles.quickCard}>
-    <View style={[styles.quickIconBox, { backgroundColor: `${color}15` }]}>
-      <FontAwesome5 name={icon} size={18} color={color} />
+const SOSScreen = () => {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [description, setDescription] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [myCalls, setMyCalls] = useState<EmergencyCall[]>([]);
+  const [activeTab, setActiveTab] = useState<'sos' | 'history'>('sos');
+
+  const getCurrentLocation = async () => {
+    setLocationLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Bạn cần cấp quyền vị trí để sử dụng tính năng này');
+        return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setLocation(loc);
+    } catch (error) {
+      console.error('Location error:', error);
+      Alert.alert('Lỗi', 'Không thể lấy vị trí hiện tại');
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const handleSOS = async () => {
+    if (!location) {
+      Alert.alert('Lỗi', 'Vui lòng lấy vị trí trước khi gửi SOS');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.createSosCall({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        description: description.trim() || undefined,
+      });
+      Alert.alert('Thành công', 'Yêu cầu cứu hộ đã được gửi!');
+      setDescription('');
+    } catch (error: any) {
+      Alert.alert('Gửi SOS thất bại', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVoiceCall = async () => {
+    setLoading(true);
+    try {
+      await api.createVoiceCall({
+        phoneNumber: phoneNumber.trim() || undefined,
+        description: description.trim() || undefined,
+      });
+      Alert.alert('Thành công', 'Yêu cầu gọi cấp cứu đã được gửi!');
+    } catch (error: any) {
+      Alert.alert('Gửi thất bại', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchMyCalls = async () => {
+    setLoading(true);
+    try {
+      const calls = await api.getMyCalls();
+      setMyCalls(Array.isArray(calls) ? calls : []);
+    } catch (error: any) {
+      console.error('Fetch calls error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error('Logout error:', e);
+    } finally {
+      router.replace('/');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'history') {
+      fetchMyCalls();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    getCurrentLocation();
+  }, []);
+
+  const renderCallItem = ({ item }: { item: EmergencyCall }) => (
+    <View style={styles.callItem}>
+      <View style={styles.callHeader}>
+        <Text style={styles.callId}>Cuộc gọi #{item.id}</Text>
+        <View style={[styles.callStatus, getStatusStyle(item.status)]}>
+          <Text style={styles.callStatusText}>{getStatusText(item.status)}</Text>
+        </View>
+      </View>
+      {item.description && (
+        <Text style={styles.callDescription}>{item.description}</Text>
+      )}
+      <Text style={styles.callTime}>
+        {new Date(item.createdAt).toLocaleString('vi-VN')}
+      </Text>
     </View>
-    <Text style={styles.quickLabel}>{label}</Text>
-  </TouchableOpacity>
-);
+  );
+
+  const getStatusStyle = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return styles.statusPending;
+      case 'assigned':
+        return styles.statusAssigned;
+      case 'completed':
+        return styles.statusCompleted;
+      default:
+        return styles.statusPending;
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return 'Đang chờ';
+      case 'assigned':
+        return 'Đã điều phối';
+      case 'completed':
+        return 'Hoàn thành';
+      default:
+        return status;
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Ứng Dụng Cứu Hộ</Text>
+        <TouchableOpacity onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={24} color="#FFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'sos' && styles.activeTab]}
+          onPress={() => setActiveTab('sos')}
+        >
+          <Text style={[styles.tabText, activeTab === 'sos' && styles.activeTabText]}>
+            SOS
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'history' && styles.activeTab]}
+          onPress={() => setActiveTab('history')}
+        >
+          <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>
+            Lịch sử
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* SOS Tab Content */}
+      {activeTab === 'sos' && (
+        <ScrollView style={styles.content}>
+          <View style={styles.sosSection}>
+            <View style={styles.locationContainer}>
+              <TouchableOpacity
+                style={styles.locationButton}
+                onPress={getCurrentLocation}
+                disabled={locationLoading}
+              >
+                <Ionicons name="location-sharp" size={20} color="#10b981" />
+                <Text style={styles.locationButtonText}>
+                  {locationLoading
+                    ? 'Đang lấy vị trí...'
+                    : location
+                    ? 'Đã lấy vị trí'
+                    : 'Lấy vị trí hiện tại'}
+                </Text>
+              </TouchableOpacity>
+              {location && (
+                <Text style={styles.locationText}>
+                  Vĩ độ: {location.coords.latitude.toFixed(6)}
+                  {'\n'}Kinh độ: {location.coords.longitude.toFixed(6)}
+                </Text>
+              )}
+            </View>
+
+            <View style={styles.inputSection}>
+              <Text style={styles.inputLabel}>Mô tả tình trạng khẩn cấp</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Nhập mô tả..."
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                numberOfLines={4}
+              />
+            </View>
+
+            <View style={styles.inputSection}>
+              <Text style={styles.inputLabel}>Số điện thoại liên hệ (tùy chọn)</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="Nhập số điện thoại..."
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+              />
+            </View>
+
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={styles.sosButton}
+                onPress={handleSOS}
+                disabled={loading || !location}
+              >
+                <Ionicons name="warning" size={24} color="#FFF" />
+                <Text style={styles.sosButtonText}>
+                  {loading ? 'Đang gửi...' : 'Gửi SOS'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.callButton}
+                onPress={handleVoiceCall}
+                disabled={loading}
+              >
+                <Ionicons name="call" size={24} color="#FFF" />
+                <Text style={styles.sosButtonText}>
+                  {loading ? 'Đang gửi...' : 'Gọi Cấp Cứu'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* History Tab Content */}
+      {activeTab === 'history' && (
+        <View style={styles.historyContainer}>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#10b981" />
+            </View>
+          ) : myCalls.length > 0 ? (
+            <FlatList
+              data={myCalls}
+              keyExtractor={(item) => item.id}
+              renderItem={renderCallItem}
+              contentContainerStyle={styles.callList}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="time-outline" size={48} color="#d1d5db" />
+              <Text style={styles.emptyText}>Chưa có lịch sử cuộc gọi</Text>
+            </View>
+          )}
+        </View>
+      )}
+    </SafeAreaView>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  gradient: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
+    backgroundColor: '#f3f4f6',
   },
   header: {
+    backgroundColor: '#10b981',
+    padding: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    height: 60,
-  },
-  closeBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    justifyContent: 'center',
     alignItems: 'center',
   },
   headerTitle: {
-    color: '#475467',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2.5,
-  },
-  scrollContent: {
-    padding: 24,
-    alignItems: 'center',
-  },
-  infoBox: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  alertIconBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: 'rgba(240, 68, 56, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(240, 68, 56, 0.2)',
-  },
-  mainTitle: {
+    fontSize: 20,
+    fontWeight: '700',
     color: '#FFF',
-    fontSize: 26,
-    fontWeight: '900',
-    textAlign: 'center',
   },
-  subTitle: {
-    color: '#98A2B3',
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 12,
-    lineHeight: 22,
-    paddingHorizontal: 20,
-  },
-  radarContainer: {
-    width: 320,
-    height: 320,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  gridOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  staticRing: {
-    position: 'absolute',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  crosshairV: {
-    position: 'absolute',
-    width: 1,
-    height: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  crosshairH: {
-    position: 'absolute',
-    height: 1,
-    width: '100%',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  radarRing: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    borderWidth: 2,
-    borderColor: 'rgba(240, 68, 56, 0.3)',
-  },
-  scannerContainer: {
-    position: 'absolute',
-    width: 300,
-    height: 300,
-    justifyContent: 'center',
-  },
-  scannerLine: {
-    width: 150,
-    height: 150,
-    borderTopLeftRadius: 150,
-  },
-  blip: {
-    position: 'absolute',
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#F04438',
-    shadowColor: '#F04438',
-    shadowRadius: 4,
-    shadowOpacity: 1,
-  },
-  sosButton: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    elevation: 20,
-    shadowColor: '#F04438',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 8,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  sosGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sosText: {
-    color: '#FFF',
-    fontSize: 54,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  sosSubText: {
-    color: 'rgba(255, 255, 255, 0.8)',
-    fontSize: 10,
-    fontWeight: '900',
-    marginTop: 4,
-  },
-  pressProgressContainer: {
-    position: 'absolute',
-    bottom: 20,
-    width: 140,
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  pressProgressBar: {
-    height: '100%',
+  tabContainer: {
+    flexDirection: 'row',
     backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
   },
-  statusBox: {
-    height: 40,
-    justifyContent: 'center',
-    marginBottom: 40,
-  },
-  readyBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(50, 213, 131, 0.05)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(50, 213, 131, 0.1)',
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#32D583',
-    marginRight: 10,
-  },
-  readyText: {
-    color: '#32D583',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  scanningBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  statusText: {
-    color: '#F04438',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  gridContainer: {
-    width: '100%',
-  },
-  gridLabel: {
-    color: '#475467',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  quickCard: {
+  tab: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 20,
-    padding: 16,
+    paddingVertical: 16,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
-  quickIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
+  activeTab: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#10b981',
   },
-  quickLabel: {
-    color: '#FFF',
-    fontSize: 12,
+  tabText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  activeTabText: {
+    color: '#10b981',
     fontWeight: '700',
   },
-  callFab: {
-    position: 'absolute',
-    bottom: 30,
-    left: 24,
-    right: 24,
-    height: 64,
-    borderRadius: 24,
-    overflow: 'hidden',
-    elevation: 10,
-  },
-  fabGradient: {
+  content: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
   },
-  fabText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 1,
+  sosSection: {
+    padding: 20,
   },
-  configRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
-  },
-  configCard: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  locationContainer: {
+    backgroundColor: '#FFF',
     borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  locationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0fdf4',
     padding: 12,
-    alignItems: 'center',
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  locationButtonText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  locationText: {
+    fontSize: 12,
+    color: '#6b7280',
+    lineHeight: 18,
+  },
+  inputSection: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  textInput: {
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    gap: 8,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#f9fafb',
+    textAlignVertical: 'top',
   },
-  configCardActive: {
-    borderColor: 'rgba(240, 68, 56, 0.5)',
-    backgroundColor: 'rgba(240, 68, 56, 0.05)',
+  buttonContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
   },
-  configText: {
-    color: '#475467',
-    fontSize: 10,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  configTextActive: {
-    color: '#FFF',
-  },
-  modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000,
-    padding: 30,
-  },
-  termsCard: {
-    backgroundColor: '#151B26',
-    borderRadius: 24,
-    padding: 24,
-    width: '100%',
-    maxHeight: '80%',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  termsHeader: {
+  sosButton: {
+    flex: 1,
+    backgroundColor: '#ef4444',
+    paddingVertical: 20,
+    borderRadius: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 20,
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#ef4444',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
   },
-  termsTitle: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  termsBody: {
-    marginBottom: 24,
-  },
-  termsText: {
-    color: '#98A2B3',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  termsBtn: {
-    backgroundColor: '#F04438',
-    height: 54,
+  callButton: {
+    flex: 1,
+    backgroundColor: '#10b981',
+    paddingVertical: 20,
     borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#10b981',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  sosButtonText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  historyContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  termsBtnText: {
-    color: '#FFF',
-    fontWeight: '900',
+  callList: {
+    gap: 12,
+  },
+  callItem: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  callHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  callId: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  callStatus: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusPending: {
+    backgroundColor: '#fef3c7',
+  },
+  statusAssigned: {
+    backgroundColor: '#dbeafe',
+  },
+  statusCompleted: {
+    backgroundColor: '#d1fae5',
+  },
+  callStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400e',
+  },
+  callDescription: {
     fontSize: 14,
+    color: '#4b5563',
+    marginBottom: 8,
+  },
+  callTime: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#6b7280',
   },
 });
 
+export default SOSScreen;

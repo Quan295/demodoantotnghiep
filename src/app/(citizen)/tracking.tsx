@@ -1,3 +1,4 @@
+import { api } from '@/services/api';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -45,6 +46,7 @@ export default function TrackingScreen() {
     latitude: victimLat + 0.012,
     longitude: victimLng + 0.008,
   });
+  const [caseDetail, setCaseDetail] = useState<any>(null);
   
   const slideAnim = useRef(new Animated.Value(height * 0.4)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -66,40 +68,45 @@ export default function TrackingScreen() {
       friction: 8,
     }).start();
 
-    // Simulate dispatch flow
-    const dispatchTimeout = setTimeout(() => {
-      setStatus('DISPATCHED');
-      setEta(8);
-      
-      const steps = 150;
-      let currentStep = 0;
-      const startLat = victimLat + 0.012;
-      const startLng = victimLng + 0.008;
-      
-      const moveInterval = setInterval(() => {
-        currentStep++;
-        const progress = currentStep / steps;
-        
-        setAmbulancePos({
-          latitude: startLat + (victimLat - startLat) * progress,
-          longitude: startLng + (victimLng - startLng) * progress,
-        });
-
-        const remainingEta = Math.ceil(8 * (1 - progress));
-        setEta(remainingEta > 0 ? remainingEta : 1);
-        
-        if (currentStep >= steps) {
-          clearInterval(moveInterval);
-          setStatus('ARRIVED');
-          setEta(0);
+    // Fetch case details from API and poll updates
+    const fetchCaseDetail = async () => {
+      if (params.id) {
+        try {
+          const detail = await api.getCallDetail(params.id as string);
+          setCaseDetail(detail);
+          
+          if (detail.status === 'assigned' || detail.status === 'in-progress') {
+            setStatus('DISPATCHED');
+            setEta(5);
+            setAmbulancePos({
+              latitude: victimLat + 0.004,
+              longitude: victimLng + 0.003,
+            });
+          } else if (detail.status === 'completed') {
+            setStatus('ARRIVED');
+            setEta(0);
+            setAmbulancePos({
+              latitude: victimLat,
+              longitude: victimLng,
+            });
+          } else {
+            setStatus('PENDING');
+          }
+        } catch (error) {
+          console.warn('Failed to load case detail in tracking:', error);
         }
-      }, 100);
+      } else {
+        // Fallback simulation if no ID was provided
+        setStatus('DISPATCHED');
+        setEta(8);
+      }
+    };
 
-      return () => clearInterval(moveInterval);
-    }, 4000);
+    fetchCaseDetail();
+    const interval = setInterval(fetchCaseDetail, 4000);
 
-    return () => clearTimeout(dispatchTimeout);
-  }, []);
+    return () => clearInterval(interval);
+  }, [params.id]);
 
   const getStatusColor = (s: CaseStatus) => {
     if (status === s) return '#F04438';
@@ -201,8 +208,20 @@ export default function TrackingScreen() {
             <FontAwesome5 name="userMd" size={20} color="#98A2B3" />
           </View>
           <View style={styles.driverDetails}>
-            <Text style={styles.driverName}>{status === 'PENDING' ? 'Đang tìm xe...' : 'Bác sĩ Lê Văn M'}</Text>
-            <Text style={styles.vehicleInfo}>{status === 'PENDING' ? 'Hệ thống đang điều phối' : 'Xe 29-A1 115.88 • Đội 115 Đống Đa'}</Text>
+            <Text style={styles.driverName}>
+              {status === 'PENDING' 
+                ? 'Đang tìm xe...' 
+                : caseDetail?.assignedDriverId 
+                  ? `Tài xế: ${caseDetail.assignedDriverId}`
+                  : 'Bác sĩ Lê Văn M'}
+            </Text>
+            <Text style={styles.vehicleInfo}>
+              {status === 'PENDING' 
+                ? 'Hệ thống đang điều phối' 
+                : caseDetail?.assignedVehicleId 
+                  ? `Xe biển số: ${caseDetail.assignedVehicleId}`
+                  : 'Xe 29-A1 115.88 • Đội 115 Đống Đa'}
+            </Text>
           </View>
           {status !== 'PENDING' && (
             <MaterialCommunityIcons name="message-text" size={24} color="#F04438" />

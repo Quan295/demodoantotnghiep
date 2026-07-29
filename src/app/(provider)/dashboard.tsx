@@ -1,21 +1,44 @@
-import { mockCases, mockProvider, mockProviderStats, mockReviews, mockTransactions } from '@/data/mockData';
+import { api } from '@/services/api';
+import { EmergencyCase, Review, User, Vehicle } from '@/types';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+interface ProviderData {
+    provider?: User;
+    vehicles?: Vehicle[];
+    cases?: EmergencyCase[];
+    transactions?: any[];
+    reviews?: Review[];
+}
 
 const DashboardScreen = () => {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'overview' | 'vehicles' | 'finance' | 'reviews'>('overview');
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ProviderData>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (e) {
+      console.error('Logout error:', e);
+    } finally {
+      router.replace('/');
+    }
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -24,35 +47,95 @@ const DashboardScreen = () => {
     }).format(amount);
   };
 
+  const getVehicleTypeLabel = (type: string) => {
+    switch (type) {
+      case 'ambulance': return 'Cấp cứu cơ bản';
+      case 'emergency-car': return 'Cấp cứu nâng cao';
+      default: return 'Khác';
+    }
+  };
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Load current user
+        const currentUser = await api.getCurrentUser();
+        
+        // Load dispatch resources (vehicles)
+        const vehicles = await api.getDispatchResources();
+        
+        // Load provider specific data based on API availability
+        // For now, we'll load what's available
+        setData({
+          provider: currentUser,
+          vehicles: vehicles,
+        });
+      } catch (error: any) {
+        console.error(error);
+        setError(error.message || 'Không thể tải dữ liệu');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color="#059669" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <Text style={{ color: '#EF4444', textAlign: 'center', marginBottom: 20 }}>{error}</Text>
+        <TouchableOpacity
+          style={{ paddingVertical: 10, paddingHorizontal: 20, backgroundColor: '#059669', borderRadius: 12 }}
+          onPress={() => window.location.reload()}
+        >
+          <Text style={{ color: '#FFF', fontWeight: '600' }}>Thử lại</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="#059669" />
       <LinearGradient colors={['#059669', '#047857']} style={styles.header}>
         <SafeAreaView>
           <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color="#FFF" />
-            </TouchableOpacity>
+            <View style={{ width: 24 }} />
             <Text style={styles.headerTitle}>Cổng Nhà Cung Cấp</Text>
-            <TouchableOpacity onPress={() => {}}>
-              <Ionicons name="settings-outline" size={24} color="#FFF" />
+            <TouchableOpacity onPress={handleLogout}>
+              <Ionicons name="log-out-outline" size={24} color="#FFF" />
             </TouchableOpacity>
           </View>
 
-          <View style={styles.walletCard}>
-            <Text style={styles.walletLabel}>Số dư hiện tại</Text>
-            <Text style={styles.walletAmount}>{formatCurrency(mockProvider.balance)}</Text>
-            <View style={styles.walletActions}>
-              <TouchableOpacity style={styles.walletBtn}>
-                <Ionicons name="add-circle-outline" size={20} color="#10B981" />
-                <Text style={styles.walletBtnText}>Nạp tiền</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.walletBtn}>
-                <Ionicons name="arrow-down-circle-outline" size={20} color="#059669" />
-                <Text style={styles.walletBtnText}>Rút tiền</Text>
-              </TouchableOpacity>
+          {data.provider && (
+            <View style={styles.walletCard}>
+              <Text style={styles.walletLabel}>Số dư hiện tại</Text>
+              <Text style={styles.walletAmount}>
+                {formatCurrency(data.provider.balance || 0)}
+              </Text>
+              <View style={styles.walletActions}>
+                <TouchableOpacity style={styles.walletBtn}>
+                  <Ionicons name="add-circle-outline" size={20} color="#10B981" />
+                  <Text style={styles.walletBtnText}>Nạp tiền</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.walletBtn}>
+                  <Ionicons name="arrow-down-circle-outline" size={20} color="#059669" />
+                  <Text style={styles.walletBtnText}>Rút tiền</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
         </SafeAreaView>
       </LinearGradient>
 
@@ -89,142 +172,107 @@ const DashboardScreen = () => {
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#10B981', '#059669']} style={styles.statIcon}>
-                  <FontAwesome5 name="clipboardList" size={20} color="#FFF" />
+                  <FontAwesome5 name="clipboard-list" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockProviderStats.totalCases}</Text>
-                <Text style={styles.statLabel}>Tổng ca</Text>
+                <Text style={styles.statValue}>{data.vehicles?.length || 0}</Text>
+                <Text style={styles.statLabel}>Số xe</Text>
               </View>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#3B82F6', '#2563EB']} style={styles.statIcon}>
                   <FontAwesome5 name="star" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockProviderStats.avgRating.toFixed(1)}</Text>
+                <Text style={styles.statValue}>{data.provider?.avgRating?.toFixed(1) || '5.0'}</Text>
                 <Text style={styles.statLabel}>Đánh giá</Text>
               </View>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#F59E0B', '#D97706']} style={styles.statIcon}>
                   <FontAwesome5 name="coins" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{formatCurrency(mockProviderStats.totalRevenue).replace('₫', '')}đ</Text>
+                <Text style={styles.statValue}>{formatCurrency(data.provider?.totalRevenue || 0).replace('₫', '')}đ</Text>
                 <Text style={styles.statLabel}>Doanh thu</Text>
               </View>
               <View style={styles.statCard}>
                 <LinearGradient colors={['#EF4444', '#DC2626']} style={styles.statIcon}>
                   <MaterialCommunityIcons name="clock-fast" size={20} color="#FFF" />
                 </LinearGradient>
-                <Text style={styles.statValue}>{mockProviderStats.avgResponseTime}ph</Text>
-                <Text style={styles.statLabel}>Thời gian phản hồi</Text>
+                <Text style={styles.statValue}>{data.provider?.totalCases || 0}</Text>
+                <Text style={styles.statLabel}>Tổng ca</Text>
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Ca gần đây</Text>
-            {mockCases.map((c) => (
-              <View key={c.id} style={styles.caseCard}>
-                <View style={styles.caseHeader}>
-                  <Text style={styles.caseId}>{c.id}</Text>
-                  <View style={[
-                    styles.caseStatus,
-                    { backgroundColor: c.status === 'completed' ? '#10B98120' : c.status === 'in-progress' ? '#F59E0B20' : '#6B728020' }
-                  ]}>
-                    <Text style={[
-                      styles.caseStatusText,
-                      { color: c.status === 'completed' ? '#10B981' : c.status === 'in-progress' ? '#F59E0B' : '#6B7280' }
-                    ]}>
-                      {c.status === 'completed' ? 'Hoàn thành' : c.status === 'in-progress' ? 'Đang xử lý' : 'Chờ'}
-                    </Text>
-                  </View>
+            <Text style={styles.sectionTitle}>Xe cứu hộ</Text>
+            {data.vehicles?.map((vehicle) => (
+              <View key={vehicle.id} style={styles.vehicleCard}>
+                <LinearGradient colors={['#10B981', '#059669']} style={styles.vehicleIcon}>
+                  <MaterialCommunityIcons name="truck-plus" size={24} color="#FFF" />
+                </LinearGradient>
+                <View style={styles.vehicleInfo}>
+                  <Text style={styles.vehiclePlate}>{vehicle.licensePlate}</Text>
+                  <Text style={styles.vehicleType}>{getVehicleTypeLabel(vehicle.type)}</Text>
                 </View>
-                <Text style={styles.caseDesc}>{c.description}</Text>
-                <Text style={styles.caseAmount}>{formatCurrency(c.providerEarnings)}</Text>
+                <View style={[
+                  styles.vehicleStatus,
+                  { backgroundColor: vehicle.status === 'available' ? '#10B98120' : vehicle.status === 'busy' ? '#EF444420' : '#6B728020' }
+                ]}>
+                  <Text style={[
+                    styles.vehicleStatusText,
+                    { color: vehicle.status === 'available' ? '#10B981' : vehicle.status === 'busy' ? '#EF4444' : '#6B7280' }
+                  ]}>
+                    {vehicle.status === 'available' ? 'Sẵn sàng' : vehicle.status === 'busy' ? 'Bận' : vehicle.status}
+                  </Text>
+                </View>
               </View>
             ))}
+
+            {(!data.vehicles || data.vehicles.length === 0) && (
+              <Text style={styles.emptyText}>Chưa có xe cứu hộ nào</Text>
+            )}
           </View>
         )}
 
         {activeTab === 'vehicles' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Danh sách xe</Text>
-            {mockProvider.vehicles.map((v) => (
-              <View key={v.id} style={styles.vehicleCard}>
+            {data.vehicles?.map((vehicle) => (
+              <View key={vehicle.id} style={styles.vehicleCard}>
                 <LinearGradient colors={['#10B981', '#059669']} style={styles.vehicleIcon}>
-                  <FontAwesome5 name="truckMedical" size={24} color="#FFF" />
+                  <MaterialCommunityIcons name="truck-plus" size={24} color="#FFF" />
                 </LinearGradient>
                 <View style={styles.vehicleInfo}>
-                  <Text style={styles.vehiclePlate}>{v.licensePlate}</Text>
-                  <Text style={styles.vehicleType}>{v.type === 'ambulance' ? 'Xe cứu thương' : 'Xe cấp cứu'}</Text>
+                  <Text style={styles.vehiclePlate}>{vehicle.licensePlate}</Text>
+                  <Text style={styles.vehicleType}>{getVehicleTypeLabel(vehicle.type)}</Text>
                 </View>
                 <View style={[
                   styles.vehicleStatus,
-                  { backgroundColor: v.status === 'available' ? '#10B98120' : v.status === 'busy' ? '#EF444420' : '#6B728020' }
+                  { backgroundColor: vehicle.status === 'available' ? '#10B98120' : vehicle.status === 'busy' ? '#EF444420' : '#6B728020' }
                 ]}>
                   <Text style={[
                     styles.vehicleStatusText,
-                    { color: v.status === 'available' ? '#10B981' : v.status === 'busy' ? '#EF4444' : '#6B7280' }
+                    { color: vehicle.status === 'available' ? '#10B981' : vehicle.status === 'busy' ? '#EF4444' : '#6B7280' }
                   ]}>
-                    {v.status === 'available' ? 'Sẵn sàng' : v.status === 'busy' ? 'Bận' : 'Bảo trì'}
+                    {vehicle.status === 'available' ? 'Sẵn sàng' : vehicle.status === 'busy' ? 'Bận' : vehicle.status}
                   </Text>
                 </View>
               </View>
             ))}
+
+            {(!data.vehicles || data.vehicles.length === 0) && (
+              <Text style={styles.emptyText}>Chưa có xe cứu hộ nào</Text>
+            )}
           </View>
         )}
 
         {activeTab === 'finance' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Lịch sử giao dịch</Text>
-            {mockTransactions.map((t) => (
-              <View key={t.id} style={styles.transactionCard}>
-                <LinearGradient
-                  colors={t.type === 'deposit' || t.type === 'earning' ? ['#10B981', '#059669'] : ['#EF4444', '#DC2626']}
-                  style={styles.transactionIcon}
-                >
-                  <Ionicons
-                    name={t.type === 'deposit' ? 'add' : t.type === 'withdraw' ? 'remove' : t.type === 'earning' ? 'cash' : 'receipt'}
-                    size={20}
-                    color="#FFF"
-                  />
-                </LinearGradient>
-                <View style={styles.transactionInfo}>
-                  <Text style={styles.transactionDesc}>{t.description}</Text>
-                  <Text style={styles.transactionDate}>{t.createdAt.toLocaleDateString('vi-VN')}</Text>
-                </View>
-                <Text style={[
-                  styles.transactionAmount,
-                  { color: t.type === 'deposit' || t.type === 'earning' ? '#10B981' : '#EF4444' }
-                ]}>
-                  {t.type === 'deposit' || t.type === 'earning' ? '+' : '-'}{formatCurrency(t.amount)}
-                </Text>
-              </View>
-            ))}
+            <Text style={styles.emptyText}>Dữ liệu sẽ được hiển thị khi API khả dụng</Text>
           </View>
         )}
 
         {activeTab === 'reviews' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Đánh giá từ khách hàng</Text>
-            {mockReviews.map((r) => (
-              <View key={r.id} style={styles.reviewCard}>
-                <View style={styles.reviewHeader}>
-                  <View style={styles.avatar}>
-                    <FontAwesome5 name="user" size={16} color="#059669" />
-                  </View>
-                  <View style={styles.reviewMeta}>
-                    <Text style={styles.reviewUser}>Khách hàng</Text>
-                    <View style={styles.stars}>
-                      {[...Array(5)].map((_, i) => (
-                        <Ionicons
-                          key={i}
-                          name={i < r.rating ? 'star' : 'star-outline'}
-                          size={14}
-                          color="#F59E0B"
-                        />
-                      ))}
-                    </View>
-                  </View>
-                </View>
-                <Text style={styles.reviewComment}>{r.comment}</Text>
-              </View>
-            ))}
+            <Text style={styles.emptyText}>Dữ liệu sẽ được hiển thị khi API khả dụng</Text>
           </View>
         )}
       </ScrollView>
@@ -236,6 +284,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#6B7280',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 40,
   },
   header: {
     paddingBottom: 30,
