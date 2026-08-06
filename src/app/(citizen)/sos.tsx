@@ -4,15 +4,15 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -62,13 +62,29 @@ const SOSScreen = () => {
 
     setLoading(true);
     try {
-      await api.createSosCall({
+      const callResult = await api.createSosCall({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         description: description.trim() || undefined,
       });
-      Alert.alert('Thành công', 'Yêu cầu cứu hộ đã được gửi!');
       setDescription('');
+      const callId = (callResult as any)?.id;
+      Alert.alert('Thành công', 'Yêu cầu cứu hộ đã được gửi!', [
+        {
+          text: 'Theo dõi xe cứu thương',
+          onPress: () => {
+            router.push({
+              pathname: '/(citizen)/tracking',
+              params: {
+                lat: location.coords.latitude.toString(),
+                lng: location.coords.longitude.toString(),
+                ...(callId ? { id: callId, missionId: callId } : {}),
+              },
+            });
+          },
+        },
+        { text: 'Đóng' },
+      ]);
     } catch (error: any) {
       Alert.alert('Gửi SOS thất bại', error.message || 'Vui lòng thử lại sau');
     } finally {
@@ -124,7 +140,27 @@ const SOSScreen = () => {
   }, []);
 
   const renderCallItem = ({ item }: { item: EmergencyCall }) => (
-    <View style={styles.callItem}>
+    <TouchableOpacity
+      style={styles.callItem}
+      activeOpacity={0.7}
+      onPress={() => {
+        const lat = typeof item.latitude === 'number' ? item.latitude.toString() : undefined;
+        const lng = typeof item.longitude === 'number' ? item.longitude.toString() : undefined;
+        const statusLower = item.status.toLowerCase();
+        if (statusLower === 'completed' || statusLower === 'cancelled') {
+          return;
+        }
+        router.push({
+          pathname: '/(citizen)/tracking',
+          params: {
+            ...(lat ? { lat } : {}),
+            ...(lng ? { lng } : {}),
+            id: item.id,
+            missionId: item.id,
+          },
+        });
+      }}
+    >
       <View style={styles.callHeader}>
         <Text style={styles.callId}>Cuộc gọi #{item.id}</Text>
         <View style={[styles.callStatus, getStatusStyle(item.status)]}>
@@ -137,7 +173,7 @@ const SOSScreen = () => {
       <Text style={styles.callTime}>
         {new Date(item.createdAt).toLocaleString('vi-VN')}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 
   const getStatusStyle = (status: string) => {

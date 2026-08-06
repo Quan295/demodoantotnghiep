@@ -3,14 +3,14 @@ import { mapApiRoleToLocal } from '@/services/config';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView as SafeAreaViewContext } from 'react-native-safe-area-context';
 
@@ -46,38 +46,73 @@ export default function AuthScreen() {
   const [newPassword, setNewPassword] = useState('');
 
   const handleLogin = async () => {
-    if (!loginUsername || !loginPassword) {
-      Alert.alert('Lỗi', 'Vui lòng nhập tên đăng nhập và mật khẩu');
-      return;
-    }
-
+    // Đảm bảo setLoading(false) LUÔN chạy trong mọi trường hợp
+    let shouldStopLoading = false;
     try {
+      if (!loginUsername || !loginPassword) {
+        Alert.alert('Lỗi', 'Vui lòng nhập tên đăng nhập và mật khẩu');
+        return;
+      }
+
       setLoading(true);
-      const loginData = await api.login(loginUsername, loginPassword);
+      shouldStopLoading = true;
+      console.log('[Login] Attempting login with:', { loginUsername, passwordLength: loginPassword.length });
+      
+      const loginData = await api.login(loginUsername.trim(), loginPassword);
+      
+      console.log('[Login] Login api returned, roles:', loginData?.roles);
+      
+      if (!loginData) {
+        throw new Error('Không nhận được dữ liệu từ server');
+      }
+      if (!loginData.roles || loginData.roles.length === 0) {
+        throw new Error('Tài khoản này chưa được phân quyền');
+      }
 
       const role = mapApiRoleToLocal(loginData.roles[0]);
+      console.log('[Login] Mapped role:', role, '| fullName:', loginData.fullName);
+      
+      let targetRoute: any = '/(citizen)/sos';
       switch (role) {
         case 'admin':
-          router.replace('/(admin)/dashboard');
+          targetRoute = '/(admin)/dashboard';
           break;
         case 'provider':
-          router.replace('/(provider)/dashboard');
+          targetRoute = '/(provider)/dashboard';
           break;
         case 'dispatcher':
-          router.replace('/(dispatcher)/dashboard');
+          targetRoute = '/(dispatcher)/dashboard';
           break;
         case 'driver':
-          router.replace('/(driver)/dashboard');
+          targetRoute = '/(driver)/dashboard';
           break;
         case 'reporter':
         default:
-          router.replace('/(citizen)/sos');
+          targetRoute = '/(citizen)/sos';
           break;
       }
+      
+      console.log('[Login] Navigating to:', targetRoute);
+      // Wrap navigation in try-catch để lỗi router không làm kẹt loading
+      try {
+        router.replace(targetRoute);
+      } catch (navError: any) {
+        console.warn('[Login] Navigation warning:', navError?.message);
+        // Thử lại nếu lỗi
+        setTimeout(() => {
+          try { router.replace(targetRoute); } catch {}
+        }, 200);
+      }
     } catch (error: any) {
-      Alert.alert('Đăng nhập thất bại', error.message || 'Vui lòng thử lại sau');
+      console.error('[Login] Login error:', error?.name, error?.message);
+      Alert.alert(
+        'Đăng nhập thất bại', 
+        error?.message || 'Vui lòng kiểm tra tên đăng nhập và mật khẩu, hoặc thử lại sau'
+      );
     } finally {
-      setLoading(false);
+      if (shouldStopLoading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -157,14 +192,20 @@ export default function AuthScreen() {
     }
   };
 
-  const handleForgotSendOtp = async () => {
+  const handleForgotPassword = async () => {
     if (!forgotPhone) {
       Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại');
       return;
     }
-    const success = await handleSendOtp(forgotPhone);
-    if (success) {
+    try {
+      setLoading(true);
+      await api.forgotPassword(forgotPhone);
+      Alert.alert('Thành công', 'Mã xác minh đã được gửi đến số điện thoại của bạn');
       setMode('resetPassword');
+    } catch (error: any) {
+      Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -422,11 +463,11 @@ export default function AuthScreen() {
 
             <TouchableOpacity
               style={styles.button}
-              onPress={handleForgotSendOtp}
+              onPress={handleForgotPassword}
               disabled={loading}
             >
               <Text style={styles.buttonText}>
-                {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
+                {loading ? 'Đang xử lý...' : 'Gửi mã xác minh'}
               </Text>
             </TouchableOpacity>
 

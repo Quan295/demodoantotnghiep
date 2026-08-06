@@ -1,58 +1,43 @@
+import AmbulanceMap from '@/components/AmbulanceMap';
 import { api } from '@/services/api';
+import { LatLng, TrackingUpdate } from '@/types';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Linking,
-  Platform,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Animated,
+    Linking,
+    Platform,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
-
-// Safely import MapView only on Native platforms
-let MapView: any = null;
-let Marker: any = null;
-let Polyline: any = null;
-if (Platform.OS !== 'web') {
-  try {
-    const MapModule = require('react-native-maps');
-    MapView = MapModule.default;
-    Marker = MapModule.Marker;
-    Polyline = MapModule.Polyline;
-  } catch (e) {
-    console.warn('Map module load failed', e);
-  }
-}
-
-const { width, height } = Dimensions.get('window');
 
 type CaseStatus = 'PENDING' | 'DISPATCHED' | 'ARRIVED';
 
 export default function TrackingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  
+
   const victimLat = params.lat ? parseFloat(params.lat as string) : 21.028511;
   const victimLng = params.lng ? parseFloat(params.lng as string) : 105.804817;
+  const callId = params.id as string | undefined;
+  const missionId = (params.missionId as string) || (params.dispatchMissionId as string) || callId;
+  const simId = params.simulationId as string | undefined;
 
   const [status, setStatus] = useState<CaseStatus>('PENDING');
   const [eta, setEta] = useState<number>(0);
-  const [ambulancePos, setAmbulancePos] = useState({
-    latitude: victimLat + 0.012,
-    longitude: victimLng + 0.008,
-  });
+  const [progress, setProgress] = useState<number>(0);
+  const [ambulancePos, setAmbulancePos] = useState<LatLng | undefined>(undefined);
   const [caseDetail, setCaseDetail] = useState<any>(null);
-  
-  const slideAnim = useRef(new Animated.Value(height * 0.4)).current;
+  const [trackUpdate, setTrackUpdate] = useState<TrackingUpdate | null>(null);
+
+  const slideAnim = useRef(new Animated.Value(400)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Pulse animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.5, duration: 1500, useNativeDriver: true }),
@@ -60,53 +45,105 @@ export default function TrackingScreen() {
       ])
     ).start();
 
-    // Slide up animation
     Animated.spring(slideAnim, {
       toValue: 0,
       useNativeDriver: true,
       tension: 50,
       friction: 8,
     }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    // Fetch case details from API and poll updates
-    const fetchCaseDetail = async () => {
-      if (params.id) {
-        try {
-          const detail = await api.getCallDetail(params.id as string);
-          setCaseDetail(detail);
-          
-          if (detail.status === 'assigned' || detail.status === 'in-progress') {
-            setStatus('DISPATCHED');
-            setEta(5);
-            setAmbulancePos({
-              latitude: victimLat + 0.004,
-              longitude: victimLng + 0.003,
-            });
-          } else if (detail.status === 'completed') {
-            setStatus('ARRIVED');
-            setEta(0);
-            setAmbulancePos({
-              latitude: victimLat,
-              longitude: victimLng,
-            });
-          } else {
-            setStatus('PENDING');
-          }
-        } catch (error) {
-          console.warn('Failed to load case detail in tracking:', error);
+  // Poll tracking updates via ambulance-simulation API (by-mission or by-id)
+  useEffect(() => {
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const poll = async () => {
+      try {
+        let update: TrackingUpdate | null = null;
+        if (simId) {
+          update = await api.getSimulationTracking(simId);
+        } else if (missionId) {
+          update = await api.getSimulationTrackingByMission(missionId);
         }
-      } else {
-        // Fallback simulation if no ID was provided
-        setStatus('DISPATCHED');
-        setEta(8);
+        if (!update || cancelled) return;
+
+        setTrackUpdate(update);
+        const simHasLocation = update.currentLocation && (update.currentLocation.lat !== 0 || update.currentLocation.lng !== 0);
+
+        if (simHasLocation) {
+          setAmbulancePos(update.currentLocation);
+        }
+
+        if (typeof update.estimatedTimeArrival === 'number') {
+          setEta(Math.max(0, Math.ceil(update.estimatedTimeArrival / 60)));
+        }
+        if (typeof update.progress === 'number') {
+          setProgress(update.progress);
+        }
+
+        // Translate simulation status into UI case status
+        switch (update.status) {
+          case 'RUNNING':
+            setStatus('DISPATCHED');
+            if (!simHasLocation) {
+              // Fallback: show ambulance offset if no real position yet
+              setAmbulancePos({
+                lat: victimLat + 0.004,
+                lng: victimLng + 0.003,
+              });
+            }
+            break;
+          case 'COMPLETED':
+          case 'STOPPED':
+            setStatus('ARRIVED');
+            setAmbulancePos({ lat: victimLat, lng: victimLng });
+            setEta(0);
+            setProgress(100);
+            break;
+          case 'CREATED':
+          case 'PAUSED':
+          default:
+            if (simHasLocation) {
+              setStatus('DISPATCHED');
+            } else {
+              setStatus('PENDING');
+            }
+            break;
+        }
+      } catch (e) {
+        console.warn('[CitizenTracking] Poll failed', e);
       }
     };
 
-    fetchCaseDetail();
-    const interval = setInterval(fetchCaseDetail, 4000);
+    // Also fetch call details if available
+    const fetchCall = async () => {
+      if (!callId) return;
+      try {
+        const detail = await api.getCallDetail(callId);
+        if (cancelled) return;
+        setCaseDetail(detail);
+        if (detail.status === 'assigned' || detail.status === 'in-progress') {
+          if (status === 'PENDING') setStatus('DISPATCHED');
+        } else if (detail.status === 'completed') {
+          setStatus('ARRIVED');
+        }
+      } catch (e) {
+        console.warn('[CitizenTracking] Failed call detail', e);
+      }
+    };
 
-    return () => clearInterval(interval);
-  }, [params.id]);
+    fetchCall();
+    poll();
+    interval = setInterval(poll, 1800);
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simId, missionId, callId]);
 
   const getStatusColor = (s: CaseStatus) => {
     if (status === s) return '#F04438';
@@ -114,67 +151,44 @@ export default function TrackingScreen() {
     return '#1F2A37';
   };
 
+  const victimLocation: LatLng = { lat: victimLat, lng: victimLng };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      
-      <View style={styles.mapWrapper}>
-        {Platform.OS !== 'web' && MapView ? (
-          <MapView
-            style={styles.map}
-            initialRegion={{
-              latitude: (victimLat + ambulancePos.latitude) / 2,
-              longitude: (victimLng + ambulancePos.longitude) / 2,
-              latitudeDelta: 0.03,
-              longitudeDelta: 0.03,
-            }}
-            customMapStyle={darkMapStyle}
-          >
-            <Marker coordinate={{ latitude: victimLat, longitude: victimLng }}>
-              <View style={styles.victimMarker}>
-                <Animated.View style={[styles.victimPing, { transform: [{ scale: pulseAnim }] }]} />
-                <View style={styles.victimDot} />
-              </View>
-            </Marker>
 
-            {status !== 'PENDING' && (
-              <>
-                <Marker coordinate={ambulancePos} rotation={45}>
-                  <View style={styles.ambMarker}>
-                    <FontAwesome5 name="ambulance" size={12} color="#FFF" />
-                  </View>
-                </Marker>
-                <Polyline
-                  coordinates={[ambulancePos, { latitude: victimLat, longitude: victimLng }]}
-                  strokeColor="#F04438"
-                  strokeWidth={3}
-                  lineDashPattern={[1, 10]}
-                />
-              </>
-            )}
-          </MapView>
-        ) : (
-          <View style={styles.webMapPlaceholder}>
-            <MaterialCommunityIcons name="map-marker-radius" size={48} color="#1F2A37" />
-            <Text style={styles.webMapText}>Bản đồ đang hoạt động (Mobile Only)</Text>
-          </View>
-        )}
+      <View style={styles.mapWrapper}>
+        <AmbulanceMap
+          victimLocation={victimLocation}
+          ambulanceLocation={ambulancePos}
+          style={styles.map}
+        />
       </View>
 
-      <TouchableOpacity 
-        style={styles.backButton} 
+      <TouchableOpacity
+        style={styles.backButton}
         onPress={() => router.replace('/(citizen)/sos')}
       >
         <Ionicons name="arrow-back" size={24} color="#FFF" />
       </TouchableOpacity>
 
-      <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnim }] }]}>
+      <Animated.View style={[styles.bottomSheet, { transform: [{ translateY: slideAnim }], paddingBottom: Platform.OS === 'ios' ? 40 : 24 }]}>
         <View style={styles.sheetHandle} />
-        
+
         <View style={styles.sheetHeader}>
           <View>
             <Text style={styles.etaLabel}>THỜI GIAN DỰ KIẾN</Text>
-            <Text style={styles.etaValue}>{status === 'PENDING' ? '--' : `${eta} PHÚT`}</Text>
+            <Text style={styles.etaValue}>
+              {status === 'PENDING' ? '--' : `${eta} PHÚT`}
+            </Text>
+            {status !== 'PENDING' ? (
+              <View style={styles.progressRow}>
+                <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%` }]} />
+                </View>
+                <Text style={styles.progressPct}>{progress.toFixed(0)}%</Text>
+              </View>
+            ) : null}
           </View>
           <TouchableOpacity onPress={() => Linking.openURL('tel:115')} style={styles.callFab}>
             <Ionicons name="call" size={24} color="#FFF" />
@@ -182,22 +196,22 @@ export default function TrackingScreen() {
         </View>
 
         <View style={styles.timeline}>
-          <TimelineItem 
-            title="Đã gửi yêu cầu" 
-            time="Vừa xong" 
-            status={status === 'PENDING' ? 'active' : 'done'} 
+          <TimelineItem
+            title="Đã gửi yêu cầu"
+            time="Vừa xong"
+            status={status === 'PENDING' ? 'active' : 'done'}
             color={getStatusColor('PENDING')}
           />
-          <TimelineItem 
-            title="Xe cứu thương đang đến" 
-            time={status === 'DISPATCHED' ? 'Đang di chuyển' : ''} 
-            status={status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' ? 'done' : 'pending'} 
+          <TimelineItem
+            title="Xe cứu thương đang đến"
+            time={status === 'DISPATCHED' ? `Đang di chuyển • ${trackUpdate?.speed ? `${trackUpdate.speed} km/h` : ''}` : ''}
+            status={status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' ? 'done' : 'pending'}
             color={getStatusColor('DISPATCHED')}
           />
-          <TimelineItem 
-            title="Đã đến hiện trường" 
-            time="" 
-            status={status === 'ARRIVED' ? 'active' : 'pending'} 
+          <TimelineItem
+            title="Đã đến hiện trường"
+            time={trackUpdate?.simulationId ? `Sim: ${trackUpdate.simulationId.slice(-6)}` : ''}
+            status={status === 'ARRIVED' ? 'active' : 'pending'}
             color={getStatusColor('ARRIVED')}
             isLast
           />
@@ -209,16 +223,16 @@ export default function TrackingScreen() {
           </View>
           <View style={styles.driverDetails}>
             <Text style={styles.driverName}>
-              {status === 'PENDING' 
-                ? 'Đang tìm xe...' 
-                : caseDetail?.assignedDriverId 
+              {status === 'PENDING'
+                ? 'Đang tìm xe...'
+                : caseDetail?.assignedDriverId
                   ? `Tài xế: ${caseDetail.assignedDriverId}`
                   : 'Bác sĩ Lê Văn M'}
             </Text>
             <Text style={styles.vehicleInfo}>
-              {status === 'PENDING' 
-                ? 'Hệ thống đang điều phối' 
-                : caseDetail?.assignedVehicleId 
+              {status === 'PENDING'
+                ? 'Hệ thống đang điều phối'
+                : caseDetail?.assignedVehicleId
                   ? `Xe biển số: ${caseDetail.assignedVehicleId}`
                   : 'Xe 29-A1 115.88 • Đội 115 Đống Đa'}
             </Text>
@@ -245,12 +259,6 @@ const TimelineItem = ({ title, time, status, color, isLast }: any) => (
   </View>
 );
 
-const darkMapStyle = [
-  { "elementType": "geometry", "stylers": [{ "color": "#111827" }] },
-  { "featureType": "road", "elementType": "geometry", "stylers": [{ "color": "#1F2937" }] },
-  { "featureType": "water", "elementType": "geometry", "stylers": [{ "color": "#0F172A" }] }
-];
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -260,18 +268,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  webMapPlaceholder: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0D1117',
-  },
-  webMapText: {
-    color: '#475467',
-    marginTop: 12,
-    fontSize: 14,
   },
   backButton: {
     position: 'absolute',
@@ -294,7 +291,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     elevation: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -10 },
@@ -312,8 +308,9 @@ const styles = StyleSheet.create({
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 32,
+    alignItems: 'flex-start',
+    marginBottom: 28,
+    gap: 16,
   },
   etaLabel: {
     color: '#475467',
@@ -327,6 +324,31 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginTop: 4,
   },
+  progressRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  progressBarBg: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#1F2A37',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: '#32D583',
+    borderRadius: 3,
+  },
+  progressPct: {
+    color: '#32D583',
+    fontSize: 10,
+    fontWeight: '900',
+    width: 36,
+    textAlign: 'right',
+  },
   callFab: {
     width: 56,
     height: 56,
@@ -337,7 +359,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   timeline: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   timelineItem: {
     flexDirection: 'row',
@@ -401,33 +423,5 @@ const styles = StyleSheet.create({
     color: '#98A2B3',
     fontSize: 12,
     marginTop: 2,
-  },
-  victimMarker: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  victimPing: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(240, 68, 56, 0.2)',
-  },
-  victimDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#F04438',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
-  ambMarker: {
-    backgroundColor: '#F04438',
-    padding: 6,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: '#FFF',
   },
 });

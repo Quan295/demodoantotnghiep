@@ -1,4 +1,4 @@
-import { User, Vehicle } from '@/types';
+import { AmbulanceSimulation, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
 import { globalConfig } from './config';
 
 // Define API Response Type
@@ -21,6 +21,7 @@ const MOCK_USERS: (User & { username: string })[] = [
   { id: '2', role: 'provider', name: 'Provider 1', email: 'provider1@example.com', phone: '0123456788', createdAt: new Date(), balance: 5000000, avgRating: 4.8, totalRevenue: 10000000, totalCases: 25, username: 'provider1' },
   { id: '3', role: 'driver', name: 'Driver 1', email: 'driver1@example.com', phone: '0123456787', createdAt: new Date(), username: 'driver1' },
   { id: '4', role: 'reporter', name: 'Nguyễn Văn A', email: 'reporter@example.com', phone: '0909123456', createdAt: new Date(), username: 'user_test01' },
+  { id: '5', role: 'dispatcher', name: 'Dispatcher 1', email: 'dispatcher@example.com', phone: '0123456786', createdAt: new Date(), username: 'dispatcher1' },
 ];
 
 const MOCK_VEHICLES: Vehicle[] = [
@@ -77,11 +78,16 @@ const MOCK_EMERGENCY_CALLS = [
   },
 ];
 
+let MOCK_SIMULATIONS: AmbulanceSimulation[] = [];
+const MOCK_SIMULATION_STATES: Record<string, { interval?: any; routeIndex: number; route: LatLng[] }> = {};
+
 class ApiService {
-  
+  private isRefreshing = false;
+  private refreshPromise: Promise<any> | null = null;
+
   // Generic fetch helper that handles the API response format
-  private async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-    console.log('[API] Request called:', { path, options });
+  private async request<T = any>(path: string, options: RequestInit = {}, isRetry = false): Promise<T> {
+    console.log('[API] Request called:', { path, options, isRetry });
     
     if (globalConfig.getUseMockData()) {
       console.log('[API] Using mock data');
@@ -96,7 +102,6 @@ class ApiService {
       url,
       method: options.method || 'GET',
       hasToken: !!token,
-      body: options.body,
     });
 
     const headers: Record<string, string> = {
@@ -108,39 +113,104 @@ class ApiService {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    console.log('[API] Request headers:', headers);
+    // Thêm timeout 15s để tránh treo mãi
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
       const response = await fetch(url, {
         ...options,
         headers,
+        signal: controller.signal,
       });
 
       console.log('[API] Response status:', response.status);
 
+      // --- Auto refresh token khi nhận 401 Unauthorized ---
+      if (response.status === 401 && !isRetry && !path.includes('/auth/login') && !path.includes('/auth/refresh')) {
+        console.log('[API] Received 401, attempting token refresh...');
+        clearTimeout(timeoutId);
+        return await this.refreshTokenAndRetry<T>(path, options);
+      }
+
       const resultText = await response.text();
-      console.log('[API] Response raw:', resultText);
+      console.log('[API] Response raw:', resultText.substring(0, 1000));
 
       let result: ApiResponse<T>;
       try {
         result = JSON.parse(resultText);
       } catch (e) {
         console.error('[API] Failed to parse JSON response:', e);
-        throw new Error(`Failed to parse response: ${resultText}`);
+        throw new Error(`Phản hồi từ server không hợp lệ: ${resultText.substring(0, 200)}`);
       }
 
-      console.log('[API] Response parsed:', result);
+      console.log('[API] Response parsed success, code:', result.code);
 
       if (!result.success) {
-        console.error('[API] Request failed:', result.message);
-        throw new Error(result.message || `API_ERROR_${response.status}`);
+        console.error('[API] Request failed (success=false):', result.message);
+        // Cũng thử refresh nếu API báo lỗi về token/mã hóa
+        if ((result.code === 401 || result.code === 403) && !isRetry && !path.includes('/auth/login') && !path.includes('/auth/refresh')) {
+          console.log('[API] Success=false with auth error code, attempting token refresh...');
+          clearTimeout(timeoutId);
+          return await this.refreshTokenAndRetry<T>(path, options);
+        }
+        throw new Error(result.message || `Lỗi từ server (${result.code})`);
       }
 
       return result.data;
-    } catch (error) {
-      console.error('[API] Request error:', error);
+    } catch (error: any) {
+      console.error('[API] Request error:', error?.name, error?.message);
+
+      // Xử lý lỗi cụ thể để báo người dùng rõ ràng
+      if (error?.name === 'AbortError') {
+        throw new Error('Kết nối quá thời gian (15 giây). Hãy kiểm tra:\n1. Server backend đang chạy?\n2. IP máy tính đúng? (đang là ' + baseUrl + ')\n3. Tường lửa Windows cho phép cổng 8080?\n4. Điện thoại cùng mạng Wi-Fi với máy tính?');
+      }
+      if (error?.message === 'Network request failed' || /Failed to fetch/i.test(error?.message || '')) {
+        throw new Error('Không thể kết nối đến server. Hãy kiểm tra:\n1. Server backend đang chạy ở ' + baseUrl + '?\n2. Điện thoại cùng mạng Wi-Fi với máy tính?\n3. Tường lửa chưa chặn cổng 8080?');
+      }
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
     }
+  }
+
+  // Refresh token queue để tránh gọi refresh đồng thời nhiều lần
+  private async refreshTokenAndRetry<T>(path: string, options: RequestInit): Promise<T> {
+    const refreshToken = globalConfig.getRefreshToken();
+    if (!refreshToken) {
+      throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    }
+
+    if (!this.isRefreshing) {
+      this.isRefreshing = true;
+      this.refreshPromise = (async () => {
+        try {
+          const res = await this.request<{ accessToken: string }>('/auth/refresh', {
+            method: 'POST',
+            body: JSON.stringify({ refreshToken }),
+          }, true);
+          console.log('[API] Token refreshed successfully');
+          this.isRefreshing = false;
+          this.refreshPromise = null;
+          return res.accessToken;
+        } catch (e) {
+          console.error('[API] Token refresh failed:', e);
+          // Refresh thất bại → xoá token và bắt đăng nhập lại
+          try {
+            globalConfig.setToken(null);
+            globalConfig.setRefreshToken(null);
+            globalConfig.setCurrentUser(null);
+          } catch {}
+          this.isRefreshing = false;
+          this.refreshPromise = null;
+          throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        }
+      })();
+    }
+
+    await this.refreshPromise;
+    // Sau khi refresh xong, gọi lại request gốc một lần nữa
+    return this.request<T>(path, options, true);
   }
 
   // Mock request handler
@@ -222,6 +292,153 @@ class ApiService {
       const id = path.split('/')[2];
       const call = MOCK_EMERGENCY_CALLS.find(c => c.id === id);
       if (call) return call as T;
+    }
+
+    // --- AMBULANCE SIMULATION MOCK ENDPOINTS ---
+    // POST /ambulance-simulations - create
+    if (path === '/ambulance-simulations' && options.method === 'POST') {
+      const body = JSON.parse(options.body as string);
+      const simId = `sim_${Date.now()}`;
+      const start: LatLng = body.startLocation || { lat: body.startLat, lng: body.startLng };
+      const end: LatLng = body.endLocation || { lat: body.endLat, lng: body.endLng };
+      // Build a simple straight-line route (8 interpolated points)
+      const route: LatLng[] = [];
+      const steps = 10;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        route.push({
+          lat: start.lat + (end.lat - start.lat) * t,
+          lng: start.lng + (end.lng - start.lng) * t,
+        });
+      }
+      const newSim: AmbulanceSimulation = {
+        id: simId,
+        missionId: body.missionId,
+        dispatchMissionId: body.dispatchMissionId,
+        vehicleId: body.vehicleId,
+        driverId: body.driverId,
+        startLocation: start,
+        endLocation: end,
+        currentLocation: { ...start },
+        route,
+        routeIndex: 0,
+        status: 'CREATED',
+        progress: 0,
+        estimatedTimeArrival: 480,
+        distanceTraveled: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      MOCK_SIMULATIONS.push(newSim);
+      MOCK_SIMULATION_STATES[simId] = { routeIndex: 0, route };
+      return newSim as T;
+    }
+
+    // GET /ambulance-simulations/{id}
+    if (/^\/ambulance-simulations\/[^/]+$/.test(path) && (!options.method || options.method === 'GET')) {
+      const id = path.split('/')[2];
+      const sim = MOCK_SIMULATIONS.find(s => s.id === id);
+      if (sim) return sim as T;
+      throw new Error('Simulation not found');
+    }
+
+    // POST /ambulance-simulations/{id}/start
+    if (/^\/ambulance-simulations\/[^/]+\/start$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const sim = MOCK_SIMULATIONS.find(s => s.id === id);
+      if (!sim) throw new Error('Simulation not found');
+      sim.status = 'RUNNING';
+      sim.startedAt = new Date().toISOString();
+      // Kick off internal simulation ticker
+      const state = MOCK_SIMULATION_STATES[id];
+      if (state && !state.interval) {
+        state.interval = setInterval(() => {
+          const currentSim = MOCK_SIMULATIONS.find(s => s.id === id);
+          if (!currentSim || currentSim.status !== 'RUNNING') return;
+          state.routeIndex = Math.min(state.routeIndex + 1, state.route.length - 1);
+          const loc = state.route[state.routeIndex];
+          currentSim.currentLocation = { ...loc };
+          currentSim.routeIndex = state.routeIndex;
+          currentSim.progress = (state.routeIndex / (state.route.length - 1)) * 100;
+          currentSim.estimatedTimeArrival = Math.max(0, 480 - state.routeIndex * 48);
+          currentSim.distanceTraveled = state.routeIndex * 0.15;
+          currentSim.updatedAt = new Date().toISOString();
+          if (state.routeIndex >= state.route.length - 1) {
+            currentSim.status = 'COMPLETED';
+            currentSim.completedAt = new Date().toISOString();
+            clearInterval(state.interval);
+            state.interval = undefined;
+          }
+        }, 1200);
+      }
+      return sim as T;
+    }
+
+    // POST /ambulance-simulations/{id}/stop
+    if (/^\/ambulance-simulations\/[^/]+\/stop$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const sim = MOCK_SIMULATIONS.find(s => s.id === id);
+      if (!sim) throw new Error('Simulation not found');
+      sim.status = 'STOPPED';
+      const state = MOCK_SIMULATION_STATES[id];
+      if (state?.interval) {
+        clearInterval(state.interval);
+        state.interval = undefined;
+      }
+      return sim as T;
+    }
+
+    // GET /ambulance-simulations/{id}/tracking
+    if (/^\/ambulance-simulations\/[^/]+\/tracking$/.test(path)) {
+      const id = path.split('/')[2];
+      const sim = MOCK_SIMULATIONS.find(s => s.id === id);
+      if (!sim) throw new Error('Simulation not found');
+      const update: TrackingUpdate = {
+        simulationId: sim.id,
+        missionId: sim.missionId,
+        currentLocation: { ...sim.currentLocation },
+        speed: sim.status === 'RUNNING' ? 45 : 0,
+        heading: 0,
+        progress: sim.progress || 0,
+        estimatedTimeArrival: sim.estimatedTimeArrival,
+        distanceTraveled: sim.distanceTraveled || 0,
+        timestamp: new Date().toISOString(),
+        status: sim.status,
+      };
+      return update as T;
+    }
+
+    // GET /ambulance-simulations/by-mission/{missionId}/tracking
+    if (/^\/ambulance-simulations\/by-mission\/[^/]+\/tracking$/.test(path)) {
+      const missionId = path.split('/')[3];
+      const sim = MOCK_SIMULATIONS.find(s => s.missionId === missionId || s.dispatchMissionId === missionId);
+      if (!sim) {
+        // Return a default "not started yet" tracking state so UI doesn't crash
+        return {
+          simulationId: null,
+          missionId,
+          currentLocation: { lat: 0, lng: 0 },
+          speed: 0,
+          progress: 0,
+          estimatedTimeArrival: 0,
+          distanceTraveled: 0,
+          timestamp: new Date().toISOString(),
+          status: 'CREATED',
+        } as T;
+      }
+      const update: TrackingUpdate = {
+        simulationId: sim.id,
+        missionId: sim.missionId,
+        currentLocation: { ...sim.currentLocation },
+        speed: sim.status === 'RUNNING' ? 45 : 0,
+        heading: 0,
+        progress: sim.progress || 0,
+        estimatedTimeArrival: sim.estimatedTimeArrival,
+        distanceTraveled: sim.distanceTraveled || 0,
+        timestamp: new Date().toISOString(),
+        status: sim.status,
+      };
+      return update as T;
     }
 
     return {} as T;
@@ -561,6 +778,46 @@ class ApiService {
   async deleteProvider(id: string) {
     await this.request(`/providers/${id}`, { method: 'DELETE' });
     return { success: true };
+  }
+
+  // --- 11. AMBULANCE SIMULATION ---
+
+  async createAmbulanceSimulation(data: {
+    missionId?: string;
+    dispatchMissionId?: string;
+    vehicleId?: string;
+    driverId?: string;
+    startLocation: LatLng;
+    endLocation: LatLng;
+  }): Promise<AmbulanceSimulation> {
+    return await this.request('/ambulance-simulations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getAmbulanceSimulation(id: string): Promise<AmbulanceSimulation> {
+    return await this.request(`/ambulance-simulations/${id}`);
+  }
+
+  async startAmbulanceSimulation(id: string): Promise<AmbulanceSimulation> {
+    return await this.request(`/ambulance-simulations/${id}/start`, {
+      method: 'POST',
+    });
+  }
+
+  async stopAmbulanceSimulation(id: string): Promise<AmbulanceSimulation> {
+    return await this.request(`/ambulance-simulations/${id}/stop`, {
+      method: 'POST',
+    });
+  }
+
+  async getSimulationTracking(id: string): Promise<TrackingUpdate> {
+    return await this.request(`/ambulance-simulations/${id}/tracking`);
+  }
+
+  async getSimulationTrackingByMission(missionId: string): Promise<TrackingUpdate> {
+    return await this.request(`/ambulance-simulations/by-mission/${missionId}/tracking`);
   }
 }
 

@@ -73,13 +73,18 @@ export default function DriverDashboard() {
 
   const handleAcceptOrder = () => {
     setShowIncomingOrder(false);
+    const missionId = `demo_mission_${Date.now()}`;
     router.push({
       pathname: '/(driver)/navigation',
       params: {
-        victimLat: 21.0091,
-        victimLng: 105.8247,
+        victimLat: '21.0091',
+        victimLng: '105.8247',
         victimName: 'Nguyễn Văn A',
         victimAddress: '12 Chùa Bộc, Đống Đa, Hà Nội',
+        missionId,
+        dispatchMissionId: missionId,
+        victimPhone: '0987.654.321',
+        victimInjury: 'Tai nạn giao thông - Chấn thương chân',
       }
     });
   };

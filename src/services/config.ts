@@ -13,8 +13,8 @@ export const mapApiRoleToLocal = (apiRole: string): Role => {
 };
 
 class ConfigService {
-  private apiBaseUrl: string = 'http://localhost:8080/api/v1';
-  private useMockData: boolean = true; // Use mock data first for testing
+  private apiBaseUrl: string = 'http://192.168.1.178:8080/api/v1';
+  private useMockData: boolean = false; // Always call real API as requested
   private token: string | null = null;
   private refreshTokenVal: string | null = null;
   private currentUser: (User & { roles: Role[], userId: number }) | null = null;
@@ -67,18 +67,45 @@ class ConfigService {
 
   setCurrentUser(user: any) {
     if (user) {
-      this.currentUser = {
-        id: user.userId.toString(),
-        role: mapApiRoleToLocal(user.roles[0]), // Use first role for now
-        name: user.fullName,
-        email: '', // API doesn't return email in login response
-        phone: user.phoneNumber || '',
-        createdAt: new Date(),
-        roles: user.roles.map(mapApiRoleToLocal),
-        userId: user.userId,
-        username: user.username,
-        phoneNumber: user.phoneNumber
-      };
+      try {
+        // Extract user ID safely
+        const userId = user.userId || user.id || '0';
+        const userRoles = user.roles || [];
+        const firstRole = userRoles[0] || 'REPORTER';
+        
+        this.currentUser = {
+          id: String(userId),
+          role: mapApiRoleToLocal(firstRole),
+          name: user.fullName || user.name || 'Người dùng',
+          email: user.email || '',
+          phone: user.phoneNumber || user.phone || '',
+          createdAt: user.createdAt ? new Date(user.createdAt) : new Date(),
+          roles: userRoles.map((r: string) => mapApiRoleToLocal(r)),
+          userId: Number(userId),
+          username: user.username || '',
+          phoneNumber: user.phoneNumber || user.phone || '',
+          // Preserve provider fields if present
+          balance: user.balance,
+          avgRating: user.avgRating,
+          totalRevenue: user.totalRevenue,
+          totalCases: user.totalCases,
+        };
+      } catch (e) {
+        console.error('Error setting current user:', e, user);
+        // Fallback user
+        this.currentUser = {
+          id: '0',
+          role: 'reporter',
+          name: 'Người dùng',
+          email: '',
+          phone: '',
+          createdAt: new Date(),
+          roles: ['reporter'],
+          userId: 0,
+          username: '',
+          phoneNumber: '',
+        };
+      }
     } else {
       this.currentUser = null;
     }

@@ -170,3 +170,57 @@ export interface SystemStats {
   topProviders: ProviderStats[];
   flaggedProviders: { providerId: string; providerName: string; complaintRate: number }[];
 }
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+export interface RoutePoint extends LatLng {
+  timestamp?: string;
+  sequence?: number;
+}
+
+export type AmbulanceSimulationStatus =
+  | 'CREATED'
+  | 'RUNNING'
+  | 'PAUSED'
+  | 'COMPLETED'
+  | 'STOPPED';
+
+export interface AmbulanceSimulation {
+  id: string;
+  missionId?: string;
+  dispatchMissionId?: string;
+  vehicleId?: string;
+  driverId?: string;
+  startLocation: LatLng;
+  endLocation: LatLng;
+  currentLocation: LatLng;
+  route?: RoutePoint[];
+  routeIndex?: number;
+  status: AmbulanceSimulationStatus;
+  speed?: number;
+  heading?: number;
+  distanceTraveled?: number;
+  estimatedTimeArrival?: number;
+  progress?: number;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TrackingUpdate {
+  simulationId: string;
+  missionId?: string;
+  currentLocation: LatLng;
+  previousLocation?: LatLng;
+  speed?: number;
+  heading?: number;
+  progress?: number;
+  estimatedTimeArrival?: number;
+  distanceTraveled?: number;
+  timestamp: string;
+  status: AmbulanceSimulationStatus;
+}
