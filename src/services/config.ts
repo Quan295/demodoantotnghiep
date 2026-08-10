@@ -13,7 +13,7 @@ export const mapApiRoleToLocal = (apiRole: string): Role => {
 };
 
 class ConfigService {
-  private apiBaseUrl: string = 'http://192.168.1.178:8080/api/v1';
+  private apiBaseUrl: string = 'http://192.168.1.159:8080/api/v1';
   private useMockData: boolean = false; // Always call real API as requested
   private token: string | null = null;
   private refreshTokenVal: string | null = null;

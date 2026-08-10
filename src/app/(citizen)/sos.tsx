@@ -1,8 +1,9 @@
 import { api } from '@/services/api';
+import { EmergencyRecorder, RecorderStatus } from '@/components/EmergencyRecorder';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -25,6 +26,14 @@ interface EmergencyCall {
   longitude?: number;
 }
 
+type SubmitFlowStatus =
+  | 'none'
+  | 'uploading'
+  | 'submitting'
+  | 'waiting_ai'
+  | 'success'
+  | 'error';
+
 const SOSScreen = () => {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -34,6 +43,22 @@ const SOSScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [myCalls, setMyCalls] = useState<EmergencyCall[]>([]);
   const [activeTab, setActiveTab] = useState<'sos' | 'history'>('sos');
+
+  // Recorder state
+  const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>('idle');
+  const [audioUri, setAudioUri] = useState<string | null>(null);
+  const [durationMillis, setDurationMillis] = useState(0);
+
+  // Flow state for submit flow
+  const [flowStatus, setFlowStatus] = useState<SubmitFlowStatus>('none');
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  const [lastCallResult, setLastCallResult] = useState<any>(null);
+
+  const flowBusy = useMemo(
+    () => flowStatus === 'uploading' || flowStatus === 'submitting' || flowStatus === 'waiting_ai',
+    [flowStatus],
+  );
 
   const getCurrentLocation = async () => {
     setLocationLoading(true);
@@ -92,19 +117,96 @@ const SOSScreen = () => {
     }
   };
 
-  const handleVoiceCall = async () => {
-    setLoading(true);
+  // Flow chính cho Ghi âm → Upload MinIO → Gọi POST /calls/voice → Đợi AI
+  const handleSubmitVoiceEmergency = async () => {
+    if (!location) {
+      Alert.alert('Lỗi', 'Vui lòng lấy vị trí trước khi gửi cuộc gọi cấp cứu');
+      return;
+    }
+    if (!audioUri || recorderStatus !== 'recorded') {
+      Alert.alert('Lỗi', 'Vui lòng ghi âm trước khi gửi');
+      return;
+    }
+    if (flowBusy) return;
+
+    setFlowError(null);
+    setLastCallResult(null);
+
+    if (!idempotencyKey) {
+      setIdempotencyKey(`voice-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    }
+
     try {
-      await api.createVoiceCall({
-        phoneNumber: phoneNumber.trim() || undefined,
+      setFlowStatus('uploading');
+      const uploaded = await api.uploadRecording(audioUri, idempotencyKey ?? undefined);
+      if (!uploaded?.objectKey) {
+        throw new Error('Backend không trả về objectKey sau khi upload');
+      }
+
+      setFlowStatus('submitting');
+      const result = await api.createVoiceCall({
+        audioObjectKey: uploaded.objectKey,
+        location: {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        },
         description: description.trim() || undefined,
       });
-      Alert.alert('Thành công', 'Yêu cầu gọi cấp cứu đã được gửi!');
-    } catch (error: any) {
-      Alert.alert('Gửi thất bại', error.message || 'Vui lòng thử lại sau');
-    } finally {
-      setLoading(false);
+      setLastCallResult(result);
+
+      setFlowStatus('waiting_ai');
+      // Giả lập thời gian AI xử lý
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      setFlowStatus('success');
+
+      const callId = (result as any)?.id;
+      Alert.alert(
+        'Gửi thành công 🎉',
+        'Hệ thống đã nhận và đang phân tích cuộc gọi cấp cứu.\nĐiều phối viên sẽ liên hệ và điều phối đội cứu hộ cho bạn sớm nhất!',
+        [
+          {
+            text: 'Theo dõi cuộc gọi',
+            onPress: () => {
+              router.push({
+                pathname: '/(citizen)/tracking',
+                params: {
+                  lat: location.coords.latitude.toString(),
+                  lng: location.coords.longitude.toString(),
+                  ...(callId ? { id: callId, missionId: callId } : {}),
+                },
+              });
+            },
+          },
+          {
+            text: 'Gửi lại mới',
+            onPress: () => {
+              setAudioUri(null);
+              setDurationMillis(0);
+              setRecorderStatus('idle');
+              setIdempotencyKey(null);
+              setFlowStatus('none');
+              setDescription('');
+            },
+          },
+        ],
+      );
+    } catch (e: any) {
+      console.error('[Voice SOS] submit failed:', e?.message || e);
+      setFlowError(e?.message || 'Gửi cuộc gọi cấp cứu thất bại');
+      setFlowStatus('error');
+      Alert.alert('Gửi thất bại', e?.message || 'Vui lòng kiểm tra mạng hoặc thử lại sau');
     }
+  };
+
+  const resetFlow = () => {
+    setAudioUri(null);
+    setDurationMillis(0);
+    setRecorderStatus('idle');
+    setIdempotencyKey(null);
+    setFlowStatus('none');
+    setFlowError(null);
+    setLastCallResult(null);
   };
 
   const fetchMyCalls = async () => {
@@ -179,8 +281,10 @@ const SOSScreen = () => {
   const getStatusStyle = (status: string) => {
     switch (status.toLowerCase()) {
       case 'pending':
+      case 'received':
         return styles.statusPending;
       case 'assigned':
+      case 'confirmed':
         return styles.statusAssigned;
       case 'completed':
         return styles.statusCompleted;
@@ -192,8 +296,10 @@ const SOSScreen = () => {
   const getStatusText = (status: string) => {
     switch (status.toLowerCase()) {
       case 'pending':
+      case 'received':
         return 'Đang chờ';
       case 'assigned':
+      case 'confirmed':
         return 'Đã điều phối';
       case 'completed':
         return 'Hoàn thành';
@@ -201,6 +307,25 @@ const SOSScreen = () => {
         return status;
     }
   };
+
+  const getFlowStatusInfo = () => {
+    switch (flowStatus) {
+      case 'uploading':
+        return { label: 'Đang upload file ghi âm lên hệ thống', icon: 'cloud-upload-outline', color: '#3b82f6' };
+      case 'submitting':
+        return { label: 'Đang gửi yêu cầu cấp cứu', icon: 'send-outline', color: '#8b5cf6' };
+      case 'waiting_ai':
+        return { label: 'AI đang phân tích giọng nói...', icon: 'hourglass-outline', color: '#f59e0b' };
+      case 'success':
+        return { label: 'Gửi thành công!', icon: 'checkmark-circle-outline', color: '#10b981' };
+      case 'error':
+        return { label: flowError || 'Gửi thất bại', icon: 'alert-circle-outline', color: '#ef4444' };
+      default:
+        return null;
+    }
+  };
+
+  const flowInfo = getFlowStatusInfo();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -258,8 +383,24 @@ const SOSScreen = () => {
               )}
             </View>
 
+            {/* Emergency Voice Recorder */}
+            <View style={styles.voiceSectionHeader}>
+              <Ionicons name="mic-circle" size={20} color="#10b981" />
+              <Text style={styles.voiceSectionTitle}>Gọi cấp cứu bằng giọng nói</Text>
+            </View>
+
+            <EmergencyRecorder
+              status={recorderStatus}
+              onStatusChange={setRecorderStatus}
+              audioUri={audioUri}
+              onAudioUriChange={setAudioUri}
+              durationMillis={durationMillis}
+              onDurationChange={setDurationMillis}
+              disabled={flowBusy}
+            />
+
             <View style={styles.inputSection}>
-              <Text style={styles.inputLabel}>Mô tả tình trạng khẩn cấp</Text>
+              <Text style={styles.inputLabel}>Mô tả tình trạng khẩn cấp (tùy chọn)</Text>
               <TextInput
                 style={styles.textInput}
                 placeholder="Nhập mô tả..."
@@ -267,6 +408,7 @@ const SOSScreen = () => {
                 onChangeText={setDescription}
                 multiline
                 numberOfLines={4}
+                editable={!flowBusy}
               />
             </View>
 
@@ -278,14 +420,36 @@ const SOSScreen = () => {
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
+                editable={!flowBusy}
               />
             </View>
+
+            {/* Flow status indicator */}
+            {flowInfo && (
+              <View style={[styles.flowContainer, { borderLeftColor: flowInfo.color }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {flowBusy ? (
+                    <ActivityIndicator size="small" color={flowInfo.color} />
+                  ) : (
+                    <Ionicons name={flowInfo.icon as any} size={18} color={flowInfo.color} />
+                  )}
+                  <Text style={[styles.flowLabel, { color: flowInfo.color }]}>
+                    {flowInfo.label}
+                  </Text>
+                </View>
+                {lastCallResult?.id && (
+                  <Text style={styles.flowSub}>
+                    Mã cuộc gọi: #{lastCallResult.id}
+                  </Text>
+                )}
+              </View>
+            )}
 
             <View style={styles.buttonContainer}>
               <TouchableOpacity
                 style={styles.sosButton}
                 onPress={handleSOS}
-                disabled={loading || !location}
+                disabled={loading || !location || flowBusy}
               >
                 <Ionicons name="warning" size={24} color="#FFF" />
                 <Text style={styles.sosButtonText}>
@@ -294,16 +458,37 @@ const SOSScreen = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.callButton}
-                onPress={handleVoiceCall}
-                disabled={loading}
+                style={[
+                  styles.callButton,
+                  (flowBusy || !audioUri || recorderStatus !== 'recorded') && styles.callButtonDisabled,
+                ]}
+                onPress={handleSubmitVoiceEmergency}
+                disabled={flowBusy || loading || !location || !audioUri || recorderStatus !== 'recorded'}
               >
-                <Ionicons name="call" size={24} color="#FFF" />
+                <Ionicons
+                  name={flowBusy ? 'hourglass' : 'send'} size={24} color="#FFF" />
                 <Text style={styles.sosButtonText}>
-                  {loading ? 'Đang gửi...' : 'Gọi Cấp Cứu'}
+                  {flowStatus === 'uploading'
+                    ? 'Upload...'
+                    : flowStatus === 'submitting'
+                    ? 'Gửi...'
+                    : flowStatus === 'waiting_ai'
+                    ? 'AI xử lý...'
+                    : 'Gửi bằng giọng nói'}
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {(flowStatus === 'success' || flowStatus === 'error') && (
+              <TouchableOpacity
+              style={styles.resetBtn}
+              onPress={resetFlow}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#4b5563" />
+              <Text style={styles.resetBtnText}>Bắt đầu lại</Text>
+            </TouchableOpacity>
+            )}
           </View>
         </ScrollView>
       )}
@@ -410,6 +595,17 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     lineHeight: 18,
   },
+  voiceSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  voiceSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
   inputSection: {
     backgroundColor: '#FFF',
     borderRadius: 16,
@@ -453,6 +649,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 4,
+    opacity: 1,
   },
   callButton: {
     flex: 1,
@@ -468,10 +665,51 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
+  callButtonDisabled: {
+    backgroundColor: '#9ca3af',
+    shadowColor: '#9ca3af',
+  },
   sosButtonText: {
     color: '#FFF',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
+  },
+  resetBtn: {
+    marginTop: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    alignSelf: 'center',
+    minWidth: 200,
+  },
+  resetBtnText: {
+    color: '#374151',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  flowContainer: {
+      backgroundColor: '#FFF',
+      borderRadius: 12,
+      padding: 14,
+      marginBottom: 16,
+      borderLeftWidth: 4,
+      gap: 6,
+  },
+  flowLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  flowSub: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
   },
   historyContainer: {
     flex: 1,
