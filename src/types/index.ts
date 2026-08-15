@@ -120,6 +120,53 @@ export type CaseStatus =
   | 'cancelled' 
   | 'refunded';
 
+export interface EmergencyCall {
+  id: string | number;
+  status: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+  latitude?: number;
+  longitude?: number;
+  location?: {
+    latitude?: number;
+    longitude?: number;
+    lat?: number;
+    lng?: number;
+    address?: string;
+  };
+  audioObjectKey?: string;
+  audioUrl?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  reporterName?: string;
+  reporterPhone?: string;
+  assignedDriverId?: string | number;
+  assignedDriverName?: string;
+  assignedDriverPhone?: string;
+  assignedVehicleId?: string | number;
+  assignedVehiclePlate?: string;
+  assignedHospital?: string;
+  estimatedEtaMin?: number;
+  notes?: string;
+}
+
+export interface CallStatusResponse {
+  id: string | number;
+  callId?: string | number;
+  status: string;
+  statusText?: string;
+  statusDescription?: string;
+  updatedAt: string;
+  assignedUnit?: {
+    vehiclePlate?: string;
+    driverName?: string;
+    driverPhone?: string;
+    hospitalName?: string;
+    etaMinutes?: number;
+  };
+  stepIndex?: number;
+}
+
 export interface EmergencyCase {
   id: string;
   reporterId: string;

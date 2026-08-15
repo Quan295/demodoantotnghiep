@@ -64,8 +64,7 @@ export default function NavigationScreen() {
           const res = await api.getDriverResource();
           if (res) {
             setDriverResource(res);
-            resourceIdRef.current = res.id || '1042';
-            api.updateDriverResourceStatus(resourceIdRef.current, 'EN_ROUTE').catch(() => {});
+            api.updateDriverResourceStatus('EN_ROUTE').catch(() => {});
           }
         } catch (rErr) {
           console.warn('[DriverNav] Could not fetch driver resource:', rErr);
@@ -93,7 +92,7 @@ export default function NavigationScreen() {
         setDriverPos({ ...startLoc });
 
         // Update initial location in resource API
-        api.updateDriverResourceLocation(resourceIdRef.current, {
+        api.updateDriverResourceLocation({
           latitude: startLoc.lat,
           longitude: startLoc.lng,
           speed: 40,
@@ -115,8 +114,8 @@ export default function NavigationScreen() {
             setDriverPos(track.currentLocation);
             if (track.status) setSimStatus(track.status);
 
-            // Sync with PATCH /driver-resource/{id}/location
-            api.updateDriverResourceLocation(resourceIdRef.current, {
+            // Sync with PATCH /driver-resource/location
+            api.updateDriverResourceLocation({
               latitude: track.currentLocation.lat,
               longitude: track.currentLocation.lng,
               speed: track.speed || 0,
@@ -172,8 +171,8 @@ export default function NavigationScreen() {
     setDriverPos({ lat: victimLat, lng: victimLng });
 
     // Update resource status to ARRIVED
-    api.updateDriverResourceStatus(resourceIdRef.current, 'ARRIVED_SCENE').catch(() => {});
-    api.updateDriverResourceLocation(resourceIdRef.current, {
+    api.updateDriverResourceStatus('ARRIVED_SCENE').catch(() => {});
+    api.updateDriverResourceLocation({
       latitude: victimLat,
       longitude: victimLng,
       speed: 0,
@@ -206,7 +205,7 @@ export default function NavigationScreen() {
             if (simIdRef.current) {
               api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
             }
-            await api.updateDriverResourceStatus(resourceIdRef.current, 'AVAILABLE').catch(() => {});
+            await api.updateDriverResourceStatus('AVAILABLE').catch(() => {});
             router.replace('/(driver)/dashboard');
           },
         },

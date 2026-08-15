@@ -98,8 +98,15 @@ export default function DriverDashboard() {
 
   // Auto-sync Interval Ref
   const autoSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSyncEnabledRef = useRef(autoSyncEnabled);
+  const isAvailableRef = useRef(isAvailable);
+  const currentCoordsRef = useRef(currentCoords);
 
-  // 1. Fetch Driver Resource via GET /driver-resource
+  useEffect(() => { autoSyncEnabledRef.current = autoSyncEnabled; }, [autoSyncEnabled]);
+  useEffect(() => { isAvailableRef.current = isAvailable; }, [isAvailable]);
+  useEffect(() => { currentCoordsRef.current = currentCoords; }, [currentCoords]);
+
+  // 1. Fetch Driver Resource via GET /driver-resource (Safe: No dependency cycle)
   const fetchDriverResource = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
@@ -122,44 +129,42 @@ export default function DriverDashboard() {
         setIsAvailable(statusUpper === 'AVAILABLE' || statusUpper === 'SẴN SÀNG');
       }
     } catch (err: any) {
-      console.error('[DriverDashboard] Error fetching driver resource:', err);
+      console.error('[DriverDashboard] Error fetching driver resource:', err?.message || err);
       // Fallback mock resource if error or not yet assigned
-      if (!driverResource) {
-        setDriverResource({
-          id: '1042',
-          licensePlate: '29A-115.88',
-          vehicleNumber: 'AMB-042',
-          type: 'AMBULANCE',
-          vehicleType: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
-          status: 'AVAILABLE',
-          providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
-          driverName: 'Bác sĩ / Tài xế Hùng',
-          driverPhone: '0988.115.115',
-          latitude: 21.0091,
-          longitude: 105.8247,
-          speed: 0,
-          heading: 90,
-          fuelLevel: 88,
-          batteryLevel: 96,
-          odometer: 14250,
-          equipment: [
-            'Máy sốc tim ngoài lồng ngực tự động (AED)',
-            'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
-            'Máy thở mini di động chuyên dụng cấp cứu',
-            'Bộ nẹp cố định cột sống & cổ đa năng',
-            'Cáng / Băng ca cứu thương thủy lực gấp gọn',
-            'Bộ sơ cấp cứu & dịch truyền tĩnh mạch',
-          ],
-          updatedAt: new Date().toISOString(),
-        });
-      }
+      setDriverResource(prev => prev || {
+        id: '1042',
+        licensePlate: '29A-115.88',
+        vehicleNumber: 'AMB-042',
+        type: 'AMBULANCE',
+        vehicleType: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
+        status: 'AVAILABLE',
+        providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
+        driverName: 'Bác sĩ / Tài xế Hùng',
+        driverPhone: '0988.115.115',
+        latitude: 21.0091,
+        longitude: 105.8247,
+        speed: 0,
+        heading: 90,
+        fuelLevel: 88,
+        batteryLevel: 96,
+        odometer: 14250,
+        equipment: [
+          'Máy sốc tim ngoài lồng ngực tự động (AED)',
+          'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
+          'Máy thở mini di động chuyên dụng cấp cứu',
+          'Bộ nẹp cố định cột sống & cổ đa năng',
+          'Cáng / Băng ca cứu thương thủy lực gấp gọn',
+          'Bộ sơ cấp cứu & dịch truyền tĩnh mạch',
+        ],
+        updatedAt: new Date().toISOString(),
+      });
     } finally {
       setLoadingResource(false);
       setRefreshing(false);
     }
-  }, [driverResource]);
+  }, []);
 
-  // 2. Location Update Handler via PATCH /driver-resource/{id}/location
+  // 2. Location Update Handler via PATCH /driver-resource/location (ownership-safe)
   const sendLocationUpdate = useCallback(async (
     lat: number,
     lng: number,
@@ -168,15 +173,8 @@ export default function DriverDashboard() {
     accuracy = 5,
     source: 'AUTO_GPS' | 'MANUAL' | 'SIMULATION' = 'AUTO_GPS'
   ) => {
-    const resourceId = driverResource?.id || '1042';
     try {
       setSyncingLocation(true);
-
-      // Animate Sync Icon
-      Animated.sequence([
-        Animated.timing(pulseSyncAnim, { toValue: 1.3, duration: 200, useNativeDriver: true }),
-        Animated.timing(pulseSyncAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      ]).start();
 
       const payload = {
         latitude: lat,
@@ -186,8 +184,8 @@ export default function DriverDashboard() {
         accuracy,
       };
 
-      console.log(`[DriverDashboard] Calling PATCH /driver-resource/${resourceId}/location:`, payload);
-      await api.updateDriverResourceLocation(resourceId, payload);
+      console.log('[DriverDashboard] Calling PATCH /driver-resource/location:', payload);
+      await api.updateDriverResourceLocation(payload);
 
       const nowStr = new Date().toLocaleTimeString('vi-VN');
       setLastSyncTime(nowStr);
@@ -219,7 +217,7 @@ export default function DriverDashboard() {
     } finally {
       setSyncingLocation(false);
     }
-  }, [driverResource, pulseSyncAnim]);
+  }, []);
 
   // 3. Manual Sync Location Button Handler
   const handleManualSyncLocation = async () => {
@@ -264,19 +262,16 @@ export default function DriverDashboard() {
   const handleToggleStatus = async (val: boolean) => {
     setIsAvailable(val);
     const newStatus = val ? 'AVAILABLE' : 'OFFLINE';
-    const resourceId = driverResource?.id || '1042';
 
     try {
-      await api.updateDriverResourceStatus(resourceId, newStatus);
-      if (driverResource) {
-        setDriverResource({ ...driverResource, status: newStatus });
-      }
+      await api.updateDriverResourceStatus(newStatus);
+      setDriverResource(prev => (prev ? { ...prev, status: newStatus } : null));
     } catch (e) {
       console.warn('[DriverDashboard] Failed to update resource status:', e);
     }
   };
 
-  // 5. Initial Load & Background Location Sync
+  // 5. Initial Load (Runs ONCE on screen mount)
   useEffect(() => {
     fetchDriverResource();
 
@@ -294,7 +289,6 @@ export default function DriverDashboard() {
               heading: loc.coords.heading || 0,
               accuracy: loc.coords.accuracy || 5,
             });
-            // Initial sync
             sendLocationUpdate(
               loc.coords.latitude,
               loc.coords.longitude,
@@ -311,16 +305,22 @@ export default function DriverDashboard() {
     })();
   }, [fetchDriverResource, sendLocationUpdate]);
 
-  // 6. Auto-sync Interval (every 8 seconds when enabled and available)
+  // 6. Auto-sync Interval with proper cleanup
   useEffect(() => {
+    if (autoSyncIntervalRef.current) {
+      clearInterval(autoSyncIntervalRef.current);
+      autoSyncIntervalRef.current = null;
+    }
+
     if (autoSyncEnabled && isAvailable) {
       autoSyncIntervalRef.current = setInterval(async () => {
+        if (!autoSyncEnabledRef.current || !isAvailableRef.current) return;
         try {
-          let lat = currentCoords.latitude;
-          let lng = currentCoords.longitude;
-          let spd = currentCoords.speed;
-          let hdg = currentCoords.heading;
-          let acc = currentCoords.accuracy;
+          let lat = currentCoordsRef.current.latitude;
+          let lng = currentCoordsRef.current.longitude;
+          let spd = currentCoordsRef.current.speed;
+          let hdg = currentCoordsRef.current.heading;
+          let acc = currentCoordsRef.current.accuracy;
 
           try {
             const loc = await Location.getLastKnownPositionAsync();
@@ -338,12 +338,7 @@ export default function DriverDashboard() {
         } catch (e) {
           console.warn('[DriverDashboard] Auto sync interval error:', e);
         }
-      }, 8000);
-    } else {
-      if (autoSyncIntervalRef.current) {
-        clearInterval(autoSyncIntervalRef.current);
-        autoSyncIntervalRef.current = null;
-      }
+      }, 15000);
     }
 
     return () => {
@@ -352,7 +347,7 @@ export default function DriverDashboard() {
         autoSyncIntervalRef.current = null;
       }
     };
-  }, [autoSyncEnabled, isAvailable, currentCoords, sendLocationUpdate]);
+  }, [autoSyncEnabled, isAvailable, sendLocationUpdate]);
 
   // 7. Incoming Mission Overlay Animation
   useEffect(() => {

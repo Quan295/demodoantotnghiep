@@ -1,4 +1,4 @@
-import { AmbulanceSimulation, DriverLocationUpdatePayload, DriverResource, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
+import { AmbulanceSimulation, CallStatusResponse, DriverLocationUpdatePayload, DriverResource, EmergencyCall, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
 import { globalConfig } from './config';
 
 // Define API Response Type
@@ -83,30 +83,51 @@ const MOCK_DISPATCH_REQUESTS = [
   { id: '2', status: 'assigned', description: 'Người bị ngất ở công viên', createdAt: new Date() },
 ];
 
-const MOCK_EMERGENCY_CALLS = [
+const MOCK_EMERGENCY_CALLS: EmergencyCall[] = [
   {
     id: '1',
-    status: 'pending',
-    description: 'Tai nạn giao thông ở đường Lê Lợi',
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-    latitude: 10.7626,
-    longitude: 106.6602,
+    status: 'DISPATCHED',
+    description: 'Tai nạn giao thông ở đường Lê Lợi, chấn thương chân',
+    createdAt: new Date(Date.now() - 600000).toISOString(),
+    updatedAt: new Date(Date.now() - 300000).toISOString(),
+    latitude: 21.0091,
+    longitude: 105.8247,
+    priority: 'HIGH',
+    assignedDriverName: 'Bác sĩ / Tài xế Hùng',
+    assignedDriverPhone: '0988.115.115',
+    assignedVehiclePlate: '29A-115.88',
+    assignedHospital: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
+    estimatedEtaMin: 4,
   },
   {
     id: '2',
-    status: 'assigned',
-    description: 'Người bị ngất ở công viên 30/4',
+    status: 'ARRIVED',
+    description: 'Người ngất xỉu tại công viên 30/4, khó thở',
     createdAt: new Date(Date.now() - 7200000).toISOString(),
-    latitude: 10.7701,
-    longitude: 106.6891,
+    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+    latitude: 21.0123,
+    longitude: 105.8301,
+    priority: 'CRITICAL',
+    assignedDriverName: 'Tài xế Tuấn',
+    assignedDriverPhone: '0977.115.222',
+    assignedVehiclePlate: '29A-115.99',
+    assignedHospital: 'Bệnh viện Bạch Mai - Khoa Cấp Cứu A9',
+    estimatedEtaMin: 0,
   },
   {
     id: '3',
-    status: 'completed',
-    description: 'Đau ngực ở nhà riêng',
+    status: 'COMPLETED',
+    description: 'Đau ngực dữ dội tại nhà riêng',
     createdAt: new Date(Date.now() - 86400000).toISOString(),
-    latitude: 10.7598,
-    longitude: 106.6732,
+    updatedAt: new Date(Date.now() - 80000000).toISOString(),
+    latitude: 21.0156,
+    longitude: 105.8355,
+    priority: 'HIGH',
+    assignedDriverName: 'Tài xế Hùng',
+    assignedDriverPhone: '0988.115.115',
+    assignedVehiclePlate: '29A-115.88',
+    assignedHospital: 'Bệnh viện Cấp Cứu 115',
+    estimatedEtaMin: 0,
   },
 ];
 
@@ -312,40 +333,100 @@ class ApiService {
     // Dispatch requests
     if (path === '/dispatch-requests') return MOCK_DISPATCH_REQUESTS as T;
 
-    // Emergency calls
+    // Emergency calls: POST /calls/sos, POST /calls/voice, POST /calls/callback
     if (path === '/calls/sos' || path === '/calls/voice' || path === '/calls/callback') {
-      const body = JSON.parse(options.body as string);
-      const newCall = {
+      const body = JSON.parse(options.body as string || '{}');
+      const lat = body.location?.latitude ?? body.latitude ?? 21.0091;
+      const lng = body.location?.longitude ?? body.longitude ?? 105.8247;
+      const newCall: EmergencyCall = {
         id: (MOCK_EMERGENCY_CALLS.length + 1).toString(),
-        status: 'pending',
-        description: body.description,
+        status: 'DISPATCHED',
+        description: body.description || (path === '/calls/voice' ? 'Cuộc gọi cấp cứu khẩn cấp qua giọng nói (Voice SOS)' : 'Yêu cầu cứu hộ khẩn cấp 1-chạm (Location SOS)'),
         createdAt: new Date().toISOString(),
-        latitude: body.location?.latitude ?? body.latitude,
-        longitude: body.location?.longitude ?? body.longitude,
+        updatedAt: new Date().toISOString(),
+        latitude: lat,
+        longitude: lng,
+        location: { latitude: lat, longitude: lng },
         audioObjectKey: body.audioObjectKey,
+        priority: 'HIGH',
+        assignedDriverName: 'Bác sĩ / Tài xế Hùng',
+        assignedDriverPhone: '0988.115.115',
+        assignedVehiclePlate: '29A-115.88',
+        assignedHospital: 'Bệnh viện Cấp Cứu 115 - Đống Đa',
+        estimatedEtaMin: 4,
       };
       MOCK_EMERGENCY_CALLS.unshift(newCall);
       return newCall as T;
     }
-    if (path === '/calls/my-calls') return MOCK_EMERGENCY_CALLS as T;
+
+    // GET /calls/my-calls & GET /calls/me
+    if (path === '/calls/my-calls' || path === '/calls/me') {
+      return MOCK_EMERGENCY_CALLS as T;
+    }
+
+    // GET /calls/{id}/status - Trạng thái xử lý cuộc gọi
+    if (/^\/calls\/[^/]+\/status$/.test(path) && (!options.method || options.method === 'GET')) {
+      const id = path.split('/')[2];
+      const call = MOCK_EMERGENCY_CALLS.find(c => String(c.id) === String(id)) || MOCK_EMERGENCY_CALLS[0];
+      const statusUpper = (call.status || 'PENDING').toUpperCase();
+      let stepIndex = 0;
+      let statusText = 'Đang tiếp nhận và phân tích';
+      let statusDescription = 'Hệ thống đã nhận tín hiệu khẩn cấp, đang điều phối xe cứu thương gần nhất.';
+
+      if (statusUpper === 'ASSIGNED' || statusUpper === 'DISPATCHED') {
+        stepIndex = 1;
+        statusText = 'Đã điều phối xe cứu thương';
+        statusDescription = `Xe cấp cứu ${call.assignedVehiclePlate || '29A-115.88'} (${call.assignedDriverName || 'Bác sĩ Hùng'}) đang di chuyển đến hiện trường.`;
+      } else if (statusUpper === 'EN_ROUTE' || statusUpper === 'RUNNING') {
+        stepIndex = 2;
+        statusText = 'Xe đang trên đường đến';
+        statusDescription = `Khoảng cách: ~1.2 km. Thời gian dự kiến: ~${call.estimatedEtaMin || 4} phút.`;
+      } else if (statusUpper === 'ARRIVED' || statusUpper === 'ARRIVED_SCENE') {
+        stepIndex = 3;
+        statusText = 'Xe đã đến hiện trường';
+        statusDescription = 'Đội ngũ y tế đã tiếp cận hiện trường và đang tiến hành sơ cứu.';
+      } else if (statusUpper === 'COMPLETED') {
+        stepIndex = 4;
+        statusText = 'Đã hoàn thành ca cứu trợ';
+        statusDescription = 'Nạn nhân đã được sơ cứu và chuyển viện an toàn.';
+      }
+
+      return {
+        id: call.id,
+        callId: call.id,
+        status: call.status,
+        statusText,
+        statusDescription,
+        updatedAt: call.updatedAt || call.createdAt,
+        stepIndex,
+        assignedUnit: {
+          vehiclePlate: call.assignedVehiclePlate || '29A-115.88',
+          driverName: call.assignedDriverName || 'Bác sĩ / Tài xế Hùng',
+          driverPhone: call.assignedDriverPhone || '0988.115.115',
+          hospitalName: call.assignedHospital || 'Bệnh viện Cấp Cứu 115',
+          etaMinutes: call.estimatedEtaMin || 4,
+        },
+      } as T;
+    }
+
     // GET /calls/{id}
     if (/^\/calls\/[^/]+$/.test(path) && (!options.method || options.method === 'GET')) {
       const id = path.split('/')[2];
-      const call = MOCK_EMERGENCY_CALLS.find(c => c.id === id);
+      const call = MOCK_EMERGENCY_CALLS.find(c => String(c.id) === String(id));
       if (call) return call as T;
-      throw new Error('Call not found');
+      return MOCK_EMERGENCY_CALLS[0] as T;
     }
+
     // GET /calls/{id}/tracking - reporter tracking endpoint
     if (/^\/calls\/[^/]+\/tracking$/.test(path)) {
       const callId = path.split('/')[2];
-      // Simulate a tracking update for the call
-      const call = MOCK_EMERGENCY_CALLS.find(c => c.id === callId) || MOCK_EMERGENCY_CALLS[0];
-      const startLat = (call?.latitude as number || 21.028511) + 0.008;
-      const startLng = (call?.longitude as number || 105.804817) + 0.006;
-      const endLat = call?.latitude as number || 21.028511;
-      const endLng = call?.longitude as number || 105.804817;
+      const call = MOCK_EMERGENCY_CALLS.find(c => String(c.id) === String(callId)) || MOCK_EMERGENCY_CALLS[0];
+      const startLat = (call?.latitude as number || 21.0091) + 0.008;
+      const startLng = (call?.longitude as number || 105.8247) + 0.006;
+      const endLat = call?.latitude as number || 21.0091;
+      const endLng = call?.longitude as number || 105.8247;
       const now = Date.now();
-      const t = Math.min(1, ((now % 120000) / 120000)); // 2-minute cycle
+      const t = Math.min(1, ((now % 120000) / 120000));
       const currentLat = startLat + (endLat - startLat) * t;
       const currentLng = startLng + (endLng - startLng) * t;
       const totalTimeSec = 480;
@@ -430,15 +511,13 @@ class ApiService {
       return MOCK_DRIVER_RESOURCE as T;
     }
 
-    // PATCH /driver-resource/{id}/location - Cập nhật vị trí xe cứu thương
-    if (/^\/driver-resource\/[^/]+\/location$/.test(path) && options.method === 'PATCH') {
-      const id = path.split('/')[2];
+    // PATCH /driver-resource/location or /driver-resource/{id}/location - Cập nhật vị trí xe cứu thương
+    if (/^\/driver-resource(\/[^/]+)?\/location$/.test(path) && options.method === 'PATCH') {
       const body = JSON.parse(options.body as string || '{}');
       const newLat = body.latitude ?? body.lat ?? MOCK_DRIVER_RESOURCE.latitude;
       const newLng = body.longitude ?? body.lng ?? MOCK_DRIVER_RESOURCE.longitude;
       MOCK_DRIVER_RESOURCE = {
         ...MOCK_DRIVER_RESOURCE,
-        id,
         latitude: Number(newLat),
         longitude: Number(newLng),
         speed: typeof body.speed === 'number' ? body.speed : MOCK_DRIVER_RESOURCE.speed,
@@ -454,13 +533,11 @@ class ApiService {
       } as T;
     }
 
-    // PATCH /driver-resource/{id}/status - Cập nhật trạng thái xe cứu thương
-    if (/^\/driver-resource\/[^/]+\/status$/.test(path) && options.method === 'PATCH') {
-      const id = path.split('/')[2];
+    // PATCH /driver-resource/status or /driver-resource/{id}/status - Cập nhật trạng thái xe cứu thương
+    if (/^\/driver-resource(\/[^/]+)?\/status$/.test(path) && options.method === 'PATCH') {
       const body = JSON.parse(options.body as string || '{}');
       MOCK_DRIVER_RESOURCE = {
         ...MOCK_DRIVER_RESOURCE,
-        id,
         status: body.status || MOCK_DRIVER_RESOURCE.status,
         updatedAt: new Date().toISOString(),
       };
@@ -823,32 +900,65 @@ class ApiService {
     });
   }
 
-  // --- 5. EMERGENCY CALL ---
+  // --- 5. EMERGENCY CALL (REPORTER EMERGENCY CALL API) ---
 
-  async createVoiceCall(data: any) {
-    return await this.request('/calls/voice', {
+  /**
+   * POST /calls/voice: Gọi cấp cứu bằng giọng nói
+   */
+  async createVoiceCall(data: any): Promise<EmergencyCall> {
+    return await this.request<EmergencyCall>('/calls/voice', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async createSosCall(data: any) {
-    return await this.request('/calls/sos', {
+  /**
+   * POST /calls/sos: Gửi định vị cấp cứu 1-chạm
+   */
+  async createSosCall(data: any): Promise<EmergencyCall> {
+    return await this.request<EmergencyCall>('/calls/sos', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async getCallDetail(id: string) {
-    return await this.request(`/calls/${id}`);
+  /**
+   * GET /calls/{id}: Lấy chi tiết cuộc gọi cấp cứu
+   */
+  async getCallDetails(id: string | number): Promise<EmergencyCall> {
+    return await this.request<EmergencyCall>(`/calls/${id}`);
   }
 
-  async getCallTracking(callId: string): Promise<TrackingUpdate> {
-    return await this.request(`/calls/${callId}/tracking`);
+  async getCallDetail(id: string | number): Promise<EmergencyCall> {
+    return await this.getCallDetails(id);
   }
 
-  async getMyCalls() {
-    return await this.request('/calls/my-calls');
+  /**
+   * GET /calls/{id}/tracking: Theo dõi yêu cầu và xe cấp cứu của tôi
+   */
+  async getCallTracking(callId: string | number): Promise<TrackingUpdate> {
+    return await this.request<TrackingUpdate>(`/calls/${callId}/tracking`);
+  }
+
+  /**
+   * GET /calls/{id}/status: Trạng thái xử lý yêu cầu của tôi
+   */
+  async getCallStatus(callId: string | number): Promise<CallStatusResponse> {
+    return await this.request<CallStatusResponse>(`/calls/${callId}/status`);
+  }
+
+  /**
+   * GET /calls/my-calls: Lấy danh sách cuộc gọi của tôi
+   */
+  async getMyCalls(): Promise<EmergencyCall[]> {
+    return await this.request<EmergencyCall[]>('/calls/my-calls');
+  }
+
+  /**
+   * GET /calls/me: Lịch sử yêu cầu cấp cứu đã gửi
+   */
+  async getMyEmergencyCalls(): Promise<EmergencyCall[]> {
+    return await this.request<EmergencyCall[]>('/calls/me');
   }
 
   async postCallback(data: any) {
@@ -1089,26 +1199,24 @@ class ApiService {
   }
 
   /**
-   * PATCH /driver-resource/{id}/location: Cập nhật vị trí xe cứu thương (PostGIS GPS)
+   * PATCH /driver-resource/location: Cập nhật vị trí xe cứu thương của tài xế hiện tại (PostGIS GPS)
    */
   async updateDriverResourceLocation(
-    id: string | number,
     data: DriverLocationUpdatePayload | { latitude: number; longitude: number; speed?: number; heading?: number; accuracy?: number; address?: string }
   ): Promise<any> {
-    return await this.request(`/driver-resource/${id}/location`, {
+    return await this.request('/driver-resource/location', {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
 
   /**
-   * PATCH /driver-resource/{id}/status: Cập nhật trạng thái trực của xe cứu thương
+   * PATCH /driver-resource/status: Cập nhật trạng thái trực của xe cứu thương
    */
   async updateDriverResourceStatus(
-    id: string | number,
     status: string
   ): Promise<any> {
-    return await this.request(`/driver-resource/${id}/status`, {
+    return await this.request('/driver-resource/status', {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     });

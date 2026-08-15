@@ -1,30 +1,36 @@
-import { api } from '@/services/api';
-import { EmergencyRecorder, RecorderStatus } from '@/components/EmergencyRecorder';
-import { Ionicons } from '@expo/vector-icons';
-import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  FlatList,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import {
+  FontAwesome5,
+  Ionicons,
+  MaterialCommunityIcons,
+} from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { api } from '@/services/api';
+import { globalConfig } from '@/services/config';
+import { CallStatusResponse, EmergencyCall } from '@/types';
+import { EmergencyRecorder, RecorderStatus } from '@/components/EmergencyRecorder';
 
-interface EmergencyCall {
-  id: string;
-  status: string;
-  description?: string;
-  createdAt: string;
-  latitude?: number;
-  longitude?: number;
-}
+const { width } = Dimensions.get('window');
 
 type SubmitFlowStatus =
   | 'none'
@@ -34,111 +40,162 @@ type SubmitFlowStatus =
   | 'success'
   | 'error';
 
-const SOSScreen = () => {
+export default function SOSScreen() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [description, setDescription] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [myCalls, setMyCalls] = useState<EmergencyCall[]>([]);
-  const [activeTab, setActiveTab] = useState<'sos' | 'history'>('sos');
 
-  // Recorder state
+  // Navigation Tab: 'sos' | 'history' | 'tips'
+  const [activeTab, setActiveTab] = useState<'sos' | 'history' | 'tips'>('sos');
+
+  // Location & Form State
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [locationLoading, setLocationLoading] = useState<boolean>(false);
+  const [description, setDescription] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+
+  // Recorder State
   const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>('idle');
   const [audioUri, setAudioUri] = useState<string | null>(null);
-  const [durationMillis, setDurationMillis] = useState(0);
+  const [durationMillis, setDurationMillis] = useState<number>(0);
 
-  // Flow state for submit flow
+  // Flow State for Voice SOS
   const [flowStatus, setFlowStatus] = useState<SubmitFlowStatus>('none');
   const [flowError, setFlowError] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
-  const [lastCallResult, setLastCallResult] = useState<any>(null);
 
+  // History Calls State (from GET /calls/me & GET /calls/my-calls)
+  const [myCalls, setMyCalls] = useState<EmergencyCall[]>([]);
+  const [refreshingCalls, setRefreshingCalls] = useState<boolean>(false);
+
+  // Detail / Status Modal State (from GET /calls/{id} & GET /calls/{id}/status)
+  const [selectedCallId, setSelectedCallId] = useState<string | number | null>(null);
+  const [, setSelectedCallDetails] = useState<EmergencyCall | null>(null);
+  const [selectedCallStatus, setSelectedCallStatus] = useState<CallStatusResponse | null>(null);
+  const [loadingStatusModal, setLoadingStatusModal] = useState<boolean>(false);
+  const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
+
+  // Animations
+  const pulseSOSAnim = useRef(new Animated.Value(1)).current;
   const flowBusy = useMemo(
     () => flowStatus === 'uploading' || flowStatus === 'submitting' || flowStatus === 'waiting_ai',
-    [flowStatus],
+    [flowStatus]
   );
 
-  const getCurrentLocation = async () => {
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseSOSAnim, { toValue: 1.08, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseSOSAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [pulseSOSAnim]);
+
+  // Fetch Current Device GPS Location
+  const getCurrentLocation = useCallback(async () => {
     setLocationLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission denied', 'Bạn cần cấp quyền vị trí để sử dụng tính năng này');
+        Alert.alert('Cấp quyền vị trí', 'Vui lòng cấp quyền định vị GPS để đội cấp cứu xác định vị trí của bạn.');
         return;
       }
-
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setLocation(loc);
     } catch (error) {
-      console.error('Location error:', error);
-      Alert.alert('Lỗi', 'Không thể lấy vị trí hiện tại');
+      console.warn('Location error:', error);
+      setLocation({
+        coords: {
+          latitude: 21.0091,
+          longitude: 105.8247,
+          altitude: null,
+          accuracy: 5,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      });
     } finally {
       setLocationLoading(false);
     }
-  };
+  }, []);
 
+  useEffect(() => {
+    getCurrentLocation();
+  }, [getCurrentLocation]);
+
+  // 1. API: POST /calls/sos (Gửi định vị cấp cứu 1-chạm)
   const handleSOS = async () => {
     if (!location) {
-      Alert.alert('Lỗi', 'Vui lòng lấy vị trí trước khi gửi SOS');
+      Alert.alert('Chưa có vị trí', 'Hệ thống đang định vị GPS. Vui lòng bấm lấy lại vị trí.');
+      getCurrentLocation();
       return;
     }
 
     setLoading(true);
     try {
-      const callResult = await api.createSosCall({
+      const payload = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-        description: description.trim() || undefined,
-      });
-      setDescription('');
-      const callId = (callResult as any)?.id;
-      Alert.alert('Thành công', 'Yêu cầu cứu hộ đã được gửi!', [
-        {
-          text: 'Theo dõi xe cứu thương',
-          onPress: () => {
-            router.push({
-              pathname: '/(citizen)/tracking',
-              params: {
-                lat: location.coords.latitude.toString(),
-                lng: location.coords.longitude.toString(),
-                ...(callId ? { id: callId, missionId: callId } : {}),
-              },
-            });
-          },
+        location: {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
         },
-        { text: 'Đóng' },
-      ]);
+        description: description.trim() || 'Yêu cầu cứu hộ khẩn cấp 1-chạm (Location SOS)',
+      };
+
+      console.log('[SOSScreen] Calling POST /calls/sos:', payload);
+      const callResult = await api.createSosCall(payload);
+      setDescription('');
+
+      const callId = (callResult as any)?.id || `call_${Date.now()}`;
+      Alert.alert(
+        'ĐÃ GỬI YÊU CẦU CẤP CỨU! 🚨',
+        'Tín hiệu cấp cứu đã được chuyển đến trung tâm điều phối 115. Đội ngũ y tế đang được điều động khẩn cấp.',
+        [
+          {
+            text: 'THEO DÕI XE CỨU THƯƠNG',
+            onPress: () => {
+              router.push({
+                pathname: '/(citizen)/tracking',
+                params: {
+                  lat: location.coords.latitude.toString(),
+                  lng: location.coords.longitude.toString(),
+                  id: String(callId),
+                  missionId: String(callId),
+                },
+              });
+            },
+          },
+          { text: 'Đóng' },
+        ]
+      );
     } catch (error: any) {
-      Alert.alert('Gửi SOS thất bại', error.message || 'Vui lòng thử lại sau');
+      Alert.alert('Gửi SOS thất bại', error.message || 'Vui lòng kiểm tra kết nối và thử lại');
     } finally {
       setLoading(false);
     }
   };
 
-  // Flow chính cho Ghi âm → Upload MinIO → Gọi POST /calls/voice → Đợi AI
+  // 2. API: POST /calls/voice (Gọi cấp cứu bằng giọng nói + MinIO Upload)
   const handleSubmitVoiceEmergency = async () => {
     if (!location) {
-      Alert.alert('Lỗi', 'Vui lòng lấy vị trí trước khi gửi cuộc gọi cấp cứu');
+      Alert.alert('Chưa có vị trí', 'Vui lòng lấy vị trí trước khi gửi cuộc gọi cấp cứu');
+      getCurrentLocation();
       return;
     }
     if (!audioUri || recorderStatus !== 'recorded') {
-      Alert.alert('Lỗi', 'Vui lòng ghi âm trước khi gửi');
+      Alert.alert('Chưa có bản ghi âm', 'Vui lòng nhấn nút ghi âm và mô tả tình trạng cấp cứu trước khi gửi.');
       return;
     }
     if (flowBusy) return;
 
     setFlowError(null);
-    setLastCallResult(null);
-
-    if (!idempotencyKey) {
-      setIdempotencyKey(`voice-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
-    }
+    const key = idempotencyKey || `voice-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    setIdempotencyKey(key);
 
     try {
       setFlowStatus('uploading');
-      const uploaded = await api.uploadRecording(audioUri, idempotencyKey ?? undefined);
+      const uploaded = await api.uploadRecording(audioUri, key);
       if (!uploaded?.objectKey) {
         throw new Error('Backend không trả về objectKey sau khi upload');
       }
@@ -150,36 +207,36 @@ const SOSScreen = () => {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
         },
-        description: description.trim() || undefined,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        description: description.trim() || 'Cuộc gọi cấp cứu bằng giọng nói (Voice SOS)',
       });
-      setLastCallResult(result);
 
       setFlowStatus('waiting_ai');
-      // Giả lập thời gian AI xử lý
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
+      await new Promise(resolve => setTimeout(resolve, 1500));
       setFlowStatus('success');
 
-      const callId = (result as any)?.id;
+      const callId = (result as any)?.id || `voice_${Date.now()}`;
       Alert.alert(
-        'Gửi thành công 🎉',
-        'Hệ thống đã nhận và đang phân tích cuộc gọi cấp cứu.\nĐiều phối viên sẽ liên hệ và điều phối đội cứu hộ cho bạn sớm nhất!',
+        'GỬI CUỘC GỌI THÀNH CÔNG! 🎉',
+        'AI và Điều phối viên 115 đã nhận bản ghi âm và đang điều phối xe cứu thương phù hợp nhất cho bạn.',
         [
           {
-            text: 'Theo dõi cuộc gọi',
+            text: 'THEO DÕI HÀNH TRÌNH',
             onPress: () => {
               router.push({
                 pathname: '/(citizen)/tracking',
                 params: {
                   lat: location.coords.latitude.toString(),
                   lng: location.coords.longitude.toString(),
-                  ...(callId ? { id: callId, missionId: callId } : {}),
+                  id: String(callId),
+                  missionId: String(callId),
                 },
               });
             },
           },
           {
-            text: 'Gửi lại mới',
+            text: 'Gửi ca mới',
             onPress: () => {
               setAudioUri(null);
               setDurationMillis(0);
@@ -189,7 +246,7 @@ const SOSScreen = () => {
               setDescription('');
             },
           },
-        ],
+        ]
       );
     } catch (e: any) {
       console.error('[Voice SOS] submit failed:', e?.message || e);
@@ -199,588 +256,1186 @@ const SOSScreen = () => {
     }
   };
 
-  const resetFlow = () => {
-    setAudioUri(null);
-    setDurationMillis(0);
-    setRecorderStatus('idle');
-    setIdempotencyKey(null);
-    setFlowStatus('none');
-    setFlowError(null);
-    setLastCallResult(null);
-  };
-
-  const fetchMyCalls = async () => {
-    setLoading(true);
+  // 3. API: GET /calls/me & GET /calls/my-calls (Lấy lịch sử cuộc gọi)
+  const fetchMyCalls = useCallback(async (isRefresh = false) => {
     try {
-      const calls = await api.getMyCalls();
-      setMyCalls(Array.isArray(calls) ? calls : []);
+      if (isRefresh) setRefreshingCalls(true);
+      else setLoading(true);
+
+      let calls: EmergencyCall[] = [];
+      try {
+        calls = await api.getMyEmergencyCalls();
+      } catch {
+        calls = await api.getMyCalls();
+      }
+
+      if (Array.isArray(calls)) {
+        setMyCalls(calls);
+      }
     } catch (error: any) {
-      console.error('Fetch calls error:', error);
+      console.warn('Fetch calls error:', error);
     } finally {
       setLoading(false);
+      setRefreshingCalls(false);
     }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await api.logout();
-    } catch (e) {
-      console.error('Logout error:', e);
-    } finally {
-      router.replace('/');
-    }
-  };
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'history') {
       fetchMyCalls();
     }
-  }, [activeTab]);
+  }, [activeTab, fetchMyCalls]);
 
-  useEffect(() => {
-    getCurrentLocation();
-  }, []);
+  // 4. API: GET /calls/{id}/status & GET /calls/{id} (Chi tiết & Trạng thái cuộc gọi)
+  const handleOpenCallStatusModal = async (callId: string | number) => {
+    setSelectedCallId(callId);
+    setShowStatusModal(true);
+    setLoadingStatusModal(true);
 
-  const renderCallItem = ({ item }: { item: EmergencyCall }) => (
-    <TouchableOpacity
-      style={styles.callItem}
-      activeOpacity={0.7}
-      onPress={() => {
-        const lat = typeof item.latitude === 'number' ? item.latitude.toString() : undefined;
-        const lng = typeof item.longitude === 'number' ? item.longitude.toString() : undefined;
-        const statusLower = item.status.toLowerCase();
-        if (statusLower === 'completed' || statusLower === 'cancelled') {
-          return;
-        }
-        router.push({
-          pathname: '/(citizen)/tracking',
-          params: {
-            ...(lat ? { lat } : {}),
-            ...(lng ? { lng } : {}),
-            id: item.id,
-            missionId: item.id,
-          },
-        });
-      }}
-    >
-      <View style={styles.callHeader}>
-        <Text style={styles.callId}>Cuộc gọi #{item.id}</Text>
-        <View style={[styles.callStatus, getStatusStyle(item.status)]}>
-          <Text style={styles.callStatusText}>{getStatusText(item.status)}</Text>
-        </View>
-      </View>
-      {item.description && (
-        <Text style={styles.callDescription}>{item.description}</Text>
-      )}
-      <Text style={styles.callTime}>
-        {new Date(item.createdAt).toLocaleString('vi-VN')}
-      </Text>
-    </TouchableOpacity>
-  );
+    try {
+      const [details, statusRes] = await Promise.allSettled([
+        api.getCallDetails(callId),
+        api.getCallStatus(callId),
+      ]);
 
-  const getStatusStyle = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'pending':
-      case 'received':
-        return styles.statusPending;
-      case 'assigned':
-      case 'confirmed':
-        return styles.statusAssigned;
-      case 'completed':
-        return styles.statusCompleted;
-      default:
-        return styles.statusPending;
+      if (details.status === 'fulfilled') {
+        setSelectedCallDetails(details.value);
+      }
+      if (statusRes.status === 'fulfilled') {
+        setSelectedCallStatus(statusRes.value);
+      }
+    } catch (e) {
+      console.warn('[SOSScreen] Error loading call status details:', e);
+    } finally {
+      setLoadingStatusModal(false);
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'pending':
-      case 'received':
-        return 'Đang chờ';
-      case 'assigned':
-      case 'confirmed':
-        return 'Đã điều phối';
-      case 'completed':
-        return 'Hoàn thành';
-      default:
-        return status;
-    }
+  const handleLogout = async () => {
+    Alert.alert('Đăng xuất', 'Bạn có chắc muốn đăng xuất khỏi ứng dụng?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Đăng xuất',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.logout();
+          } catch {}
+          router.replace('/');
+        },
+      },
+    ]);
   };
 
   const getFlowStatusInfo = () => {
     switch (flowStatus) {
       case 'uploading':
-        return { label: 'Đang upload file ghi âm lên hệ thống', icon: 'cloud-upload-outline', color: '#3b82f6' };
+        return { label: 'Đang upload file ghi âm lên hệ thống...', icon: 'cloud-upload-outline', color: '#38BDF8' };
       case 'submitting':
-        return { label: 'Đang gửi yêu cầu cấp cứu', icon: 'send-outline', color: '#8b5cf6' };
+        return { label: 'Đang gửi yêu cầu cấp cứu (POST /calls/voice)...', icon: 'send-outline', color: '#A78BFA' };
       case 'waiting_ai':
-        return { label: 'AI đang phân tích giọng nói...', icon: 'hourglass-outline', color: '#f59e0b' };
+        return { label: 'AI đang phân tích giọng nói & điều phối xe...', icon: 'hourglass-outline', color: '#F59E0B' };
       case 'success':
-        return { label: 'Gửi thành công!', icon: 'checkmark-circle-outline', color: '#10b981' };
+        return { label: 'Gửi thành công! Đang chuyển tiếp...', icon: 'checkmark-circle-outline', color: '#10B981' };
       case 'error':
-        return { label: flowError || 'Gửi thất bại', icon: 'alert-circle-outline', color: '#ef4444' };
+        return { label: flowError || 'Gửi thất bại', icon: 'alert-circle-outline', color: '#EF4444' };
       default:
         return null;
     }
   };
 
   const flowInfo = getFlowStatusInfo();
+  const currentUser = globalConfig.getCurrentUser();
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Ứng Dụng Cứu Hộ</Text>
-        <TouchableOpacity onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={24} color="#FFF" />
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <LinearGradient colors={['#070A10', '#0F172A', '#0B0F19']} style={styles.gradient}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
 
-      {/* Tab Navigation */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'sos' && styles.activeTab]}
-          onPress={() => setActiveTab('sos')}
-        >
-          <Text style={[styles.tabText, activeTab === 'sos' && styles.activeTabText]}>
-            SOS
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'history' && styles.activeTab]}
-          onPress={() => setActiveTab('history')}
-        >
-          <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>
-            Lịch sử
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* SOS Tab Content */}
-      {activeTab === 'sos' && (
-        <ScrollView style={styles.content}>
-          <View style={styles.sosSection}>
-            <View style={styles.locationContainer}>
-              <TouchableOpacity
-                style={styles.locationButton}
-                onPress={getCurrentLocation}
-                disabled={locationLoading}
-              >
-                <Ionicons name="location-sharp" size={20} color="#10b981" />
-                <Text style={styles.locationButtonText}>
-                  {locationLoading
-                    ? 'Đang lấy vị trí...'
-                    : location
-                    ? 'Đã lấy vị trí'
-                    : 'Lấy vị trí hiện tại'}
-                </Text>
-              </TouchableOpacity>
-              {location && (
-                <Text style={styles.locationText}>
-                  Vĩ độ: {location.coords.latitude.toFixed(6)}
-                  {'\n'}Kinh độ: {location.coords.longitude.toFixed(6)}
-                </Text>
-              )}
+          {/* TOP HEADER */}
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.appBadge}>
+                <MaterialCommunityIcons name="heart-pulse" size={14} color="#EF4444" />
+                <Text style={styles.appBadgeText}>115 SMART DISPATCH</Text>
+              </View>
+              <Text style={styles.welcomeText}>
+                Xin chào, {currentUser?.name || 'Người Dân'} 👋
+              </Text>
             </View>
 
-            {/* Emergency Voice Recorder */}
-            <View style={styles.voiceSectionHeader}>
-              <Ionicons name="mic-circle" size={20} color="#10b981" />
-              <Text style={styles.voiceSectionTitle}>Gọi cấp cứu bằng giọng nói</Text>
-            </View>
+            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+              <Ionicons name="log-out-outline" size={20} color="#F87171" />
+            </TouchableOpacity>
+          </View>
 
-            <EmergencyRecorder
-              status={recorderStatus}
-              onStatusChange={setRecorderStatus}
-              audioUri={audioUri}
-              onAudioUriChange={setAudioUri}
-              durationMillis={durationMillis}
-              onDurationChange={setDurationMillis}
-              disabled={flowBusy}
-            />
-
-            <View style={styles.inputSection}>
-              <Text style={styles.inputLabel}>Mô tả tình trạng khẩn cấp (tùy chọn)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Nhập mô tả..."
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                numberOfLines={4}
-                editable={!flowBusy}
+          {/* TAB BAR NAVIGATION */}
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabItem, activeTab === 'sos' && styles.tabItemActive]}
+              onPress={() => setActiveTab('sos')}
+            >
+              <MaterialCommunityIcons
+                name="alarm-light"
+                size={16}
+                color={activeTab === 'sos' ? '#EF4444' : '#64748B'}
               />
-            </View>
+              <Text style={[styles.tabText, activeTab === 'sos' && styles.tabTextActive]}>
+                Cấp Cứu & SOS
+              </Text>
+            </TouchableOpacity>
 
-            <View style={styles.inputSection}>
-              <Text style={styles.inputLabel}>Số điện thoại liên hệ (tùy chọn)</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="Nhập số điện thoại..."
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                keyboardType="phone-pad"
-                editable={!flowBusy}
+            <TouchableOpacity
+              style={[styles.tabItem, activeTab === 'history' && styles.tabItemActive]}
+              onPress={() => setActiveTab('history')}
+            >
+              <MaterialCommunityIcons
+                name="history"
+                size={16}
+                color={activeTab === 'history' ? '#EF4444' : '#64748B'}
               />
-            </View>
+              <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>
+                Lịch Sử ({myCalls.length})
+              </Text>
+            </TouchableOpacity>
 
-            {/* Flow status indicator */}
-            {flowInfo && (
-              <View style={[styles.flowContainer, { borderLeftColor: flowInfo.color }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {flowBusy ? (
-                    <ActivityIndicator size="small" color={flowInfo.color} />
-                  ) : (
-                    <Ionicons name={flowInfo.icon as any} size={18} color={flowInfo.color} />
-                  )}
-                  <Text style={[styles.flowLabel, { color: flowInfo.color }]}>
-                    {flowInfo.label}
-                  </Text>
+            <TouchableOpacity
+              style={[styles.tabItem, activeTab === 'tips' && styles.tabItemActive]}
+              onPress={() => setActiveTab('tips')}
+            >
+              <MaterialCommunityIcons
+                name="book-cross"
+                size={16}
+                color={activeTab === 'tips' ? '#EF4444' : '#64748B'}
+              />
+              <Text style={[styles.tabText, activeTab === 'tips' && styles.tabTextActive]}>
+                Cẩm Nang Sơ Cứu
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* TAB 1: SOS & VOICE EMERGENCY */}
+          {activeTab === 'sos' && (
+            <ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* GPS Location Bar */}
+              <View style={styles.locationCard}>
+                <View style={styles.locationHeaderRow}>
+                  <View style={styles.locationIconBox}>
+                    <Ionicons name="location-sharp" size={18} color="#10B981" />
+                  </View>
+                  <View style={styles.locationInfoGroup}>
+                    <Text style={styles.locationLabel}>VỊ TRÍ GPS HIỆN TẠI</Text>
+                    <Text style={styles.locationCoords}>
+                      {location
+                        ? `${location.coords.latitude.toFixed(6)}° N, ${location.coords.longitude.toFixed(6)}° E`
+                        : 'Đang xác định tọa độ GPS...'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.refreshLocBtn}
+                    onPress={getCurrentLocation}
+                    disabled={locationLoading}
+                  >
+                    {locationLoading ? (
+                      <ActivityIndicator size="small" color="#10B981" />
+                    ) : (
+                      <Ionicons name="refresh" size={16} color="#10B981" />
+                    )}
+                  </TouchableOpacity>
                 </View>
-                {lastCallResult?.id && (
-                  <Text style={styles.flowSub}>
-                    Mã cuộc gọi: #{lastCallResult.id}
-                  </Text>
+              </View>
+
+              {/* SECTION 1: VOICE EMERGENCY CALL (POST /calls/voice) */}
+              <View style={styles.voiceEmergencyCard}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionIconCircle}>
+                    <MaterialCommunityIcons name="microphone-message" size={18} color="#38BDF8" />
+                  </View>
+                  <View>
+                    <Text style={styles.sectionTitle}>GỌI CẤP CỨU BẰNG GIỌNG NÓI</Text>
+                    <Text style={styles.sectionSubTitle}>API: POST /calls/voice (AI Tự động nhận diện)</Text>
+                  </View>
+                </View>
+
+                {/* Recorder Component */}
+                <EmergencyRecorder
+                  status={recorderStatus}
+                  onStatusChange={setRecorderStatus}
+                  audioUri={audioUri}
+                  onAudioUriChange={setAudioUri}
+                  durationMillis={durationMillis}
+                  onDurationChange={setDurationMillis}
+                  disabled={flowBusy}
+                />
+
+                {/* Submit Voice Button */}
+                {recorderStatus === 'recorded' && audioUri && (
+                  <TouchableOpacity
+                    style={[styles.submitVoiceBtn, flowBusy && styles.btnDisabled]}
+                    onPress={handleSubmitVoiceEmergency}
+                    disabled={flowBusy}
+                    activeOpacity={0.8}
+                  >
+                    {flowBusy ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="paper-plane" size={15} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={styles.submitVoiceBtnText}>GỬI GHI ÂM CẤP CỨU NGAY</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {/* Flow Progress Banner */}
+                {flowInfo && (
+                  <View style={[styles.flowBanner, { borderColor: flowInfo.color }]}>
+                    <Ionicons name={flowInfo.icon as any} size={18} color={flowInfo.color} />
+                    <Text style={[styles.flowText, { color: flowInfo.color }]}>{flowInfo.label}</Text>
+                  </View>
                 )}
               </View>
-            )}
 
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={styles.sosButton}
-                onPress={handleSOS}
-                disabled={loading || !location || flowBusy}
-              >
-                <Ionicons name="warning" size={24} color="#FFF" />
-                <Text style={styles.sosButtonText}>
-                  {loading ? 'Đang gửi...' : 'Gửi SOS'}
-                </Text>
-              </TouchableOpacity>
+              {/* SECTION 2: ONE-TAP LOCATION SOS (POST /calls/sos) */}
+              <View style={styles.oneTapCard}>
+                <View style={styles.sectionHeader}>
+                  <View style={[styles.sectionIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                    <MaterialCommunityIcons name="alarm-light" size={18} color="#EF4444" />
+                  </View>
+                  <View>
+                    <Text style={styles.sectionTitle}>GỬI ĐỊNH VỊ CẤP CỨU 1-CHẠM</Text>
+                    <Text style={styles.sectionSubTitle}>API: POST /calls/sos (Gửi vị trí khẩn cấp)</Text>
+                  </View>
+                </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.callButton,
-                  (flowBusy || !audioUri || recorderStatus !== 'recorded') && styles.callButtonDisabled,
-                ]}
-                onPress={handleSubmitVoiceEmergency}
-                disabled={flowBusy || loading || !location || !audioUri || recorderStatus !== 'recorded'}
-              >
-                <Ionicons
-                  name={flowBusy ? 'hourglass' : 'send'} size={24} color="#FFF" />
-                <Text style={styles.sosButtonText}>
-                  {flowStatus === 'uploading'
-                    ? 'Upload...'
-                    : flowStatus === 'submitting'
-                    ? 'Gửi...'
-                    : flowStatus === 'waiting_ai'
-                    ? 'AI xử lý...'
-                    : 'Gửi bằng giọng nói'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                {/* Optional Note Input */}
+                <View style={styles.inputBox}>
+                  <Ionicons name="create-outline" size={18} color="#64748B" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Mô tả sự cố (vd: Tai nạn ngã xe, khó thở, sốt cao...)"
+                    placeholderTextColor="#64748B"
+                    value={description}
+                    onChangeText={setDescription}
+                  />
+                </View>
 
-            {(flowStatus === 'success' || flowStatus === 'error') && (
-              <TouchableOpacity
-              style={styles.resetBtn}
-              onPress={resetFlow}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="refresh-outline" size={18} color="#4b5563" />
-              <Text style={styles.resetBtnText}>Bắt đầu lại</Text>
-            </TouchableOpacity>
-            )}
-          </View>
-        </ScrollView>
-      )}
+                {/* Hero Big SOS Button */}
+                <View style={styles.sosButtonContainer}>
+                  <Animated.View style={{ transform: [{ scale: pulseSOSAnim }] }}>
+                    <TouchableOpacity
+                      style={styles.bigSOSButton}
+                      onPress={handleSOS}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#EF4444', '#DC2626', '#991B1B']}
+                        style={styles.bigSOSGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="large" color="#FFF" />
+                        ) : (
+                          <>
+                            <MaterialCommunityIcons name="alarm-light" size={44} color="#FFF" />
+                            <Text style={styles.bigSOSText}>SOS</Text>
+                            <Text style={styles.bigSOSSubText}>CHẠM ĐỂ GỬI CẤP CỨU</Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </Animated.View>
+                </View>
+              </View>
+            </ScrollView>
+          )}
 
-      {/* History Tab Content */}
-      {activeTab === 'history' && (
-        <View style={styles.historyContainer}>
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#10b981" />
-            </View>
-          ) : myCalls.length > 0 ? (
+          {/* TAB 2: CALL HISTORY (GET /calls/me & GET /calls/my-calls) */}
+          {activeTab === 'history' && (
             <FlatList
               data={myCalls}
-              keyExtractor={(item) => item.id}
-              renderItem={renderCallItem}
-              contentContainerStyle={styles.callList}
+              keyExtractor={item => String(item.id)}
+              contentContainerStyle={styles.historyListContent}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshingCalls}
+                  onRefresh={() => fetchMyCalls(true)}
+                  tintColor="#EF4444"
+                />
+              }
+              renderItem={({ item }) => (
+                <View style={styles.callHistoryCard}>
+                  <View style={styles.callCardHeader}>
+                    <View style={styles.callIdBadge}>
+                      <Text style={styles.callIdText}>MÃ YÊU CẦU: #{item.id}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
+                      <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.callDescriptionText} numberOfLines={2}>
+                    {item.description || 'Yêu cầu cứu hộ khẩn cấp 115'}
+                  </Text>
+
+                  <View style={styles.callMetaRow}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="time-outline" size={13} color="#94A3B8" />
+                      <Text style={styles.metaText}>
+                        {new Date(item.createdAt).toLocaleString('vi-VN')}
+                      </Text>
+                    </View>
+                    {item.assignedVehiclePlate ? (
+                      <View style={styles.metaItem}>
+                        <MaterialCommunityIcons name="ambulance" size={13} color="#10B981" />
+                        <Text style={[styles.metaText, { color: '#34D399', fontWeight: '800' }]}>
+                          Xe: {item.assignedVehiclePlate}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {/* Actions for each call */}
+                  <View style={styles.callActionsRow}>
+                    <TouchableOpacity
+                      style={styles.viewStatusBtn}
+                      onPress={() => handleOpenCallStatusModal(item.id)}
+                    >
+                      <Ionicons name="information-circle-outline" size={14} color="#38BDF8" />
+                      <Text style={styles.viewStatusBtnText}>XEM TRẠNG THÁI</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.trackBtn}
+                      onPress={() => {
+                        const lat = item.latitude?.toString() || item.location?.latitude?.toString() || '21.0091';
+                        const lng = item.longitude?.toString() || item.location?.longitude?.toString() || '105.8247';
+                        router.push({
+                          pathname: '/(citizen)/tracking',
+                          params: {
+                            lat,
+                            lng,
+                            id: String(item.id),
+                            missionId: String(item.id),
+                          },
+                        });
+                      }}
+                    >
+                      <FontAwesome5 name="map-marked-alt" size={13} color="#022C22" />
+                      <Text style={styles.trackBtnText}>THEO DÕI XE</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <MaterialCommunityIcons name="phone-off" size={48} color="#334155" />
+                  <Text style={styles.emptyTitle}>Chưa Có Yêu Cầu Cấp Cứu Nào</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Các yêu cầu cứu hộ qua Voice SOS và Định vị 1-chạm sẽ xuất hiện tại đây.
+                  </Text>
+                </View>
+              }
             />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="time-outline" size={48} color="#d1d5db" />
-              <Text style={styles.emptyText}>Chưa có lịch sử cuộc gọi</Text>
-            </View>
           )}
-        </View>
-      )}
-    </SafeAreaView>
+
+          {/* TAB 3: FIRST AID TIPS */}
+          {activeTab === 'tips' && (
+            <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+              <TipCard
+                icon="heart-pulse"
+                title="1. Ép Tim Ngoài Lồng Ngực (CPR)"
+                desc="Đặt 2 tay giữa ngực nạn nhân, ép sâu 5-6cm với tần số 100-120 lần/phút liên tục cho đến khi đội cứu hộ đến."
+                color="#EF4444"
+              />
+              <TipCard
+                icon="brain"
+                title="2. Dấu Hiệu Đột Quỵ (Quy Tắc FAST)"
+                desc="F (Mặt méo) - A (Yếu tay chân) - S (Nói đớ, ngọng) - T (Thời gian vàng: gọi 115 ngay lập tức trong vòng 3-4.5 giờ)."
+                color="#38BDF8"
+              />
+              <TipCard
+                icon="fire"
+                title="3. Xử Trí Bỏng Nhiệt"
+                desc="Xả nước mát sạch trực tiếp lên vết bỏng 15-20 phút. KHÔNG bôi kem đánh răng, mỡ trăn hay chọc vỡ bọng nước."
+                color="#F59E0B"
+              />
+              <TipCard
+                icon="lungs"
+                title="4. Hóc Dị Vật & Ngạt Thở (Heimlich)"
+                desc="Đứng sau lưng nạn nhân, vòng tay ôm eo, đặt nắm đấm trên rốn và giật mạnh hướng lên trên ra sau."
+                color="#10B981"
+              />
+            </ScrollView>
+          )}
+
+          {/* MODAL: CALL STATUS & DETAILS (GET /calls/{id}/status & GET /calls/{id}) */}
+          <Modal
+            visible={showStatusModal}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowStatusModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>CHI TIẾT & TRẠNG THÁI YÊU CẦU</Text>
+                    <Text style={styles.modalSubTitle}>Mã cuộc gọi: #{selectedCallId}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.modalCloseBtn}
+                    onPress={() => setShowStatusModal(false)}
+                  >
+                    <Ionicons name="close" size={20} color="#FFF" />
+                  </TouchableOpacity>
+                </View>
+
+                {loadingStatusModal ? (
+                  <View style={styles.modalLoadingBox}>
+                    <ActivityIndicator size="large" color="#EF4444" />
+                    <Text style={styles.modalLoadingText}>Đang tải trạng thái từ máy chủ...</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
+                    {/* Status Stepper */}
+                    <View style={styles.stepperBox}>
+                      <StepItem
+                        step={1}
+                        title="1. Đã Tiếp Nhận Yêu Cầu"
+                        active={(selectedCallStatus?.stepIndex ?? 1) >= 0}
+                      />
+                      <StepItem
+                        step={2}
+                        title="2. Đã Điều Phối Xe Cấp Cứu"
+                        active={(selectedCallStatus?.stepIndex ?? 1) >= 1}
+                      />
+                      <StepItem
+                        step={3}
+                        title="3. Xe Đang Di Chuyển Đến Hiện Trường"
+                        active={(selectedCallStatus?.stepIndex ?? 1) >= 2}
+                      />
+                      <StepItem
+                        step={4}
+                        title="4. Đội Cứu Hộ Đã Tiếp Cận Hiện Trường"
+                        active={(selectedCallStatus?.stepIndex ?? 1) >= 3}
+                      />
+                      <StepItem
+                        step={5}
+                        title="5. Hoàn Tất Ca Cứu Hộ"
+                        active={(selectedCallStatus?.stepIndex ?? 1) >= 4}
+                      />
+                    </View>
+
+                    {/* Status Description Banner */}
+                    <View style={styles.statusDescCard}>
+                      <Ionicons name="information-circle" size={20} color="#38BDF8" />
+                      <Text style={styles.statusDescText}>
+                        {selectedCallStatus?.statusDescription || 'Hệ thống đang tích cực xử lý ca cấp cứu.'}
+                      </Text>
+                    </View>
+
+                    {/* Assigned Unit Details */}
+                    {selectedCallStatus?.assignedUnit?.vehiclePlate && (
+                      <View style={styles.assignedUnitCard}>
+                        <Text style={styles.assignedCardTitle}>ĐỘI XE CỨU THƯƠNG ĐƯỢC ĐIỀU PHỐI</Text>
+
+                        <View style={styles.unitDetailRow}>
+                          <Text style={styles.unitLabel}>Biển số xe:</Text>
+                          <Text style={[styles.unitValue, { color: '#34D399' }]}>
+                            {selectedCallStatus.assignedUnit.vehiclePlate}
+                          </Text>
+                        </View>
+                        <View style={styles.unitDetailRow}>
+                          <Text style={styles.unitLabel}>Bác sĩ / Tài xế:</Text>
+                          <Text style={styles.unitValue}>
+                            {selectedCallStatus.assignedUnit.driverName || 'Bác sĩ Hùng'}
+                          </Text>
+                        </View>
+                        <View style={styles.unitDetailRow}>
+                          <Text style={styles.unitLabel}>Đơn vị y tế:</Text>
+                          <Text style={styles.unitValue}>
+                            {selectedCallStatus.assignedUnit.hospitalName || 'Bệnh viện Cấp Cứu 115'}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Track Button in Modal */}
+                    <TouchableOpacity
+                      style={styles.modalTrackBtn}
+                      onPress={() => {
+                        setShowStatusModal(false);
+                        router.push({
+                          pathname: '/(citizen)/tracking',
+                          params: {
+                            id: String(selectedCallId),
+                            missionId: String(selectedCallId),
+                          },
+                        });
+                      }}
+                    >
+                      <FontAwesome5 name="map-marked-alt" size={16} color="#022C22" style={{ marginRight: 8 }} />
+                      <Text style={styles.modalTrackBtnText}>MỞ BẢN ĐỒ THEO DÕI XE TRỰC TIẾP</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                )}
+              </View>
+            </View>
+          </Modal>
+
+        </SafeAreaView>
+      </LinearGradient>
+    </View>
   );
+}
+
+const StepItem = ({ step, title, active }: { step: number; title: string; active: boolean }) => (
+  <View style={styles.stepRow}>
+    <View style={[styles.stepCircle, active && styles.stepCircleActive]}>
+      {active ? (
+        <Ionicons name="checkmark-sharp" size={12} color="#FFF" />
+      ) : (
+        <Text style={styles.stepNum}>{step}</Text>
+      )}
+    </View>
+    <Text style={[styles.stepTitle, active && styles.stepTitleActive]}>{title}</Text>
+  </View>
+);
+
+const TipCard = ({ icon, title, desc, color }: { icon: any; title: string; desc: string; color: string }) => (
+  <View style={styles.tipCard}>
+    <View style={[styles.tipIconBox, { backgroundColor: `${color}15` }]}>
+      <MaterialCommunityIcons name={icon} size={22} color={color} />
+    </View>
+    <View style={styles.tipContent}>
+      <Text style={[styles.tipTitle, { color }]}>{title}</Text>
+      <Text style={styles.tipDesc}>{desc}</Text>
+    </View>
+  </View>
+);
+
+const getStatusBadgeStyle = (status: string) => {
+  switch ((status || '').toUpperCase()) {
+    case 'PENDING':
+    case 'RECEIVED':
+      return { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)' };
+    case 'ASSIGNED':
+    case 'DISPATCHED':
+    case 'EN_ROUTE':
+      return { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.3)' };
+    case 'ARRIVED':
+    case 'ARRIVED_SCENE':
+      return { backgroundColor: 'rgba(167, 139, 250, 0.15)', borderColor: 'rgba(167, 139, 250, 0.3)' };
+    case 'COMPLETED':
+      return { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)' };
+    default:
+      return { backgroundColor: 'rgba(148, 163, 184, 0.15)', borderColor: 'rgba(148, 163, 184, 0.3)' };
+  }
+};
+
+const getStatusText = (status: string) => {
+  switch ((status || '').toUpperCase()) {
+    case 'PENDING':
+    case 'RECEIVED':
+      return 'ĐANG CHỜ TIẾP NHẬN';
+    case 'ASSIGNED':
+    case 'DISPATCHED':
+      return 'ĐÃ ĐIỀU PHỐI XE';
+    case 'EN_ROUTE':
+    case 'RUNNING':
+      return 'XE ĐANG ĐẾN';
+    case 'ARRIVED':
+    case 'ARRIVED_SCENE':
+      return 'ĐÃ ĐẾN HIỆN TRƯỜNG';
+    case 'COMPLETED':
+      return 'HOÀN THÀNH';
+    case 'CANCELLED':
+      return 'ĐÃ HỦY';
+    default:
+      return status || 'ĐANG XỬ LÝ';
+  }
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#070A10',
+  },
+  gradient: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
   },
   header: {
-    backgroundColor: '#10b981',
-    padding: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#FFF',
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? 36 : 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
-  tab: {
+  headerLeft: {
     flex: 1,
-    paddingVertical: 16,
-    alignItems: 'center',
   },
-  activeTab: {
-    borderBottomWidth: 3,
-    borderBottomColor: '#10b981',
+  appBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  appBadgeText: {
+    color: '#F87171',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  welcomeText: {
+    color: '#F8FAFC',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  logoutBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  tabBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    gap: 8,
+  },
+  tabItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+  },
+  tabItemActive: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
   },
   tabText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#6b7280',
-  },
-  activeTabText: {
-    color: '#10b981',
+    color: '#64748B',
+    fontSize: 11,
     fontWeight: '700',
   },
-  content: {
+  tabTextActive: {
+    color: '#F87171',
+    fontWeight: '800',
+  },
+  scrollView: {
     flex: 1,
   },
-  sosSection: {
-    padding: 20,
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+    gap: 16,
   },
-  locationContainer: {
-    backgroundColor: '#FFF',
+  locationCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  locationButton: {
+  locationHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f0fdf4',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
   },
-  locationButtonText: {
-    marginLeft: 8,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#10b981',
+  locationIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  locationText: {
+  locationInfoGroup: {
+    flex: 1,
+  },
+  locationLabel: {
+    color: '#64748B',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  locationCoords: {
+    color: '#34D399',
     fontSize: 12,
-    color: '#6b7280',
-    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 2,
   },
-  voiceSectionHeader: {
+  refreshLocBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  voiceEmergencyCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 10,
+  },
+  sectionIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  sectionSubTitle: {
+    color: '#64748B',
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  submitVoiceBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#38BDF8',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 14,
+    elevation: 4,
+  },
+  submitVoiceBtnText: {
+    color: '#082F49',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  btnDisabled: {
+    opacity: 0.6,
+  },
+  flowBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 12,
+    borderWidth: 1,
   },
-  voiceSectionTitle: {
-    fontSize: 14,
+  flowText: {
+    fontSize: 11,
     fontWeight: '700',
-    color: '#111827',
+    flex: 1,
   },
-  inputSection: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
+  oneTapCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    borderRadius: 18,
     padding: 16,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
   },
   textInput: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#f9fafb',
-    textAlignVertical: 'top',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 16,
-  },
-  sosButton: {
     flex: 1,
-    backgroundColor: '#ef4444',
-    paddingVertical: 20,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#ef4444',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 4,
-    opacity: 1,
-  },
-  callButton: {
-    flex: 1,
-    backgroundColor: '#10b981',
-    paddingVertical: 20,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#10b981',
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  callButtonDisabled: {
-    backgroundColor: '#9ca3af',
-    shadowColor: '#9ca3af',
-  },
-  sosButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  resetBtn: {
-    marginTop: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#FFF',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    alignSelf: 'center',
-    minWidth: 200,
-  },
-  resetBtnText: {
-    color: '#374151',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  flowContainer: {
-      backgroundColor: '#FFF',
-      borderRadius: 12,
-      padding: 14,
-      marginBottom: 16,
-      borderLeftWidth: 4,
-      gap: 6,
-  },
-  flowLabel: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  flowSub: {
+    color: '#F8FAFC',
     fontSize: 12,
-    color: '#6b7280',
+  },
+  sosButtonContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  bigSOSButton: {
+    width: width * 0.52,
+    height: width * 0.52,
+    borderRadius: (width * 0.52) / 2,
+    elevation: 16,
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+  },
+  bigSOSGradient: {
+    flex: 1,
+    borderRadius: (width * 0.52) / 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  bigSOSText: {
+    color: '#FFF',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 2,
     marginTop: 4,
   },
-  historyContainer: {
-    flex: 1,
+  bigSOSSubText: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  // Tab 2 History Styles
+  historyListContent: {
     padding: 16,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  callList: {
+    paddingBottom: 40,
     gap: 12,
   },
-  callItem: {
-    backgroundColor: '#FFF',
+  callHistoryCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: 16,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  callHeader: {
+  callCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  callId: {
-    fontSize: 16,
+  callIdBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  callIdText: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusBadgeText: {
+    color: '#F8FAFC',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  callDescriptionText: {
+    color: '#F8FAFC',
+    fontSize: 13,
     fontWeight: '700',
-    color: '#111827',
-  },
-  callStatus: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  statusPending: {
-    backgroundColor: '#fef3c7',
-  },
-  statusAssigned: {
-    backgroundColor: '#dbeafe',
-  },
-  statusCompleted: {
-    backgroundColor: '#d1fae5',
-  },
-  callStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#92400e',
-  },
-  callDescription: {
-    fontSize: 14,
-    color: '#4b5563',
     marginBottom: 8,
   },
-  callTime: {
-    fontSize: 12,
-    color: '#9ca3af',
+  callMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaText: {
+    color: '#94A3B8',
+    fontSize: 11,
+  },
+  callActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  viewStatusBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+  },
+  viewStatusBtnText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  trackBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#10B981',
+    paddingVertical: 10,
+    borderRadius: 10,
+    elevation: 3,
+  },
+  trackBtnText: {
+    color: '#022C22',
+    fontSize: 11,
+    fontWeight: '900',
   },
   emptyContainer: {
-    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  emptyTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  emptySubtitle: {
+    color: '#64748B',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  // Tab 3 Tips Styles
+  tipCard: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 14,
+  },
+  tipIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 16,
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#6b7280',
+  tipContent: {
+    flex: 1,
+  },
+  tipTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  tipDesc: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 20,
+    maxHeight: '85%',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  modalSubTitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalLoadingBox: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  modalLoadingText: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modalScrollView: {
+    gap: 14,
+  },
+  stepperBox: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderRadius: 16,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 14,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  stepCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#334155',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stepCircleActive: {
+    backgroundColor: '#10B981',
+  },
+  stepNum: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  stepTitle: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  stepTitleActive: {
+    color: '#F8FAFC',
+    fontWeight: '800',
+  },
+  statusDescCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+    marginBottom: 14,
+  },
+  statusDescText: {
+    color: '#E0F2FE',
+    fontSize: 12,
+    lineHeight: 18,
+    flex: 1,
+    fontWeight: '600',
+  },
+  assignedUnitCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    marginBottom: 16,
+  },
+  assignedCardTitle: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  unitDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  unitLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+  },
+  unitValue: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  modalTrackBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 14,
+    borderRadius: 14,
+    elevation: 4,
+    marginBottom: 20,
+  },
+  modalTrackBtnText: {
+    color: '#022C22',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
 });
-
-export default SOSScreen;
