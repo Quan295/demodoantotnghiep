@@ -14,7 +14,7 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
-import { AmbulanceSimulation, AmbulanceSimulationStatus, LatLng, TrackingUpdate } from '@/types';
+import { AmbulanceSimulation, AmbulanceSimulationStatus, DriverResource, LatLng, TrackingUpdate } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
 type MissionStatus = 'EN_ROUTE' | 'ARRIVED_SCENE';
@@ -32,6 +32,9 @@ export default function NavigationScreen() {
   const victimInjury = (params.victimInjury as string) || 'Tai nạn giao thông - Chấn thương chân';
   const missionId = (params.missionId as string) || (params.dispatchMissionId as string) || undefined;
 
+  // --- Driver Resource state ---
+  const [driverResource, setDriverResource] = useState<DriverResource | null>(null);
+
   // --- Simulation state ---
   const [simulation, setSimulation] = useState<AmbulanceSimulation | null>(null);
   const [simStatus, setSimStatus] = useState<AmbulanceSimulationStatus>('CREATED');
@@ -48,13 +51,26 @@ export default function NavigationScreen() {
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const simIdRef = useRef<string | null>(null);
+  const resourceIdRef = useRef<string | number>('1042');
 
-  // --- Init: create + start simulation, start polling tracking ---
+  // --- Init: fetch resource, create + start simulation, start polling tracking ---
   useEffect(() => {
     let cancelled = false;
 
     const init = async () => {
       try {
+        // Fetch current assigned ambulance resource
+        try {
+          const res = await api.getDriverResource();
+          if (res) {
+            setDriverResource(res);
+            resourceIdRef.current = res.id || '1042';
+            api.updateDriverResourceStatus(resourceIdRef.current, 'EN_ROUTE').catch(() => {});
+          }
+        } catch (rErr) {
+          console.warn('[DriverNav] Could not fetch driver resource:', rErr);
+        }
+
         const startLoc: LatLng = {
           lat: victimLat + 0.008,
           lng: victimLng + 0.006,
@@ -66,7 +82,7 @@ export default function NavigationScreen() {
           missionId,
           dispatchMissionId: missionId,
           driverId: currentUser?.id,
-          vehicleId: undefined,
+          vehicleId: driverResource?.id ? String(driverResource.id) : undefined,
           startLocation: startLoc,
           endLocation: endLoc,
         });
@@ -75,6 +91,14 @@ export default function NavigationScreen() {
         setSimulation(created);
         simIdRef.current = created.id;
         setDriverPos({ ...startLoc });
+
+        // Update initial location in resource API
+        api.updateDriverResourceLocation(resourceIdRef.current, {
+          latitude: startLoc.lat,
+          longitude: startLoc.lng,
+          speed: 40,
+          heading: 90,
+        }).catch(() => {});
 
         // Start simulation
         const started = await api.startAmbulanceSimulation(created.id);
@@ -90,8 +114,16 @@ export default function NavigationScreen() {
             if (cancelled) return;
             setDriverPos(track.currentLocation);
             if (track.status) setSimStatus(track.status);
+
+            // Sync with PATCH /driver-resource/{id}/location
+            api.updateDriverResourceLocation(resourceIdRef.current, {
+              latitude: track.currentLocation.lat,
+              longitude: track.currentLocation.lng,
+              speed: track.speed || 0,
+              heading: track.heading || 0,
+            }).catch(() => {});
+
             if (typeof track.distanceTraveled === 'number') {
-              // Reverse: how much left ~ start*1.2 minus traveled
               const startDistance = 1.2;
               setDistance(Math.max(0.01, startDistance - track.distanceTraveled));
             }
@@ -126,7 +158,6 @@ export default function NavigationScreen() {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
-      // Try to stop simulation on exit (best effort)
       if (simIdRef.current) {
         api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
       }
@@ -139,6 +170,16 @@ export default function NavigationScreen() {
     setDistance(0);
     setEta(0);
     setDriverPos({ lat: victimLat, lng: victimLng });
+
+    // Update resource status to ARRIVED
+    api.updateDriverResourceStatus(resourceIdRef.current, 'ARRIVED_SCENE').catch(() => {});
+    api.updateDriverResourceLocation(resourceIdRef.current, {
+      latitude: victimLat,
+      longitude: victimLng,
+      speed: 0,
+      heading: 0,
+    }).catch(() => {});
+
     if (simIdRef.current) {
       api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
       if (pollingRef.current) {
@@ -148,7 +189,7 @@ export default function NavigationScreen() {
     }
     Alert.alert(
       'Cập Nhật Trạng Thái',
-      'Đã báo cáo trạng thái "ĐÃ ĐẾN HIỆN TRƯỜNG" về trung tâm tổng đài điều phối.',
+      'Đã báo cáo trạng thái "ĐÃ ĐẾN HIỆN TRƯỜNG" về trung tâm tổng đài điều phối qua hệ thống PostGIS.',
       [{ text: 'Đóng' }]
     );
   };
@@ -156,18 +197,19 @@ export default function NavigationScreen() {
   const handleCompleteMission = () => {
     Alert.alert(
       'Hoàn Thành Ca Cứu Trợ',
-      'Xác nhận bệnh nhân đã được sơ cứu hoặc đưa lên xe cấp cứu chuyển viện?',
+      'Xác nhận bệnh nhân đã được sơ cứu và chuyển viện an toàn? Xe sẽ chuyển về trạng thái SẴN SÀNG.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
           text: 'XÁC NHẬN HOÀN THÀNH',
-          onPress: () => {
+          onPress: async () => {
             if (simIdRef.current) {
               api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
             }
+            await api.updateDriverResourceStatus(resourceIdRef.current, 'AVAILABLE').catch(() => {});
             router.replace('/(driver)/dashboard');
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -192,23 +234,25 @@ export default function NavigationScreen() {
   };
 
   const victimLocation: LatLng = { lat: victimLat, lng: victimLng };
+  const licensePlate = driverResource?.licensePlate || '29A-115.88';
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0C0E12" />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
 
-        {/* Floating Top Header (Patient Details) */}
+        {/* Floating Top Header (Patient & Mission Details) */}
         <View style={styles.topFloatCard}>
           <View style={styles.topCardRow}>
             <View style={styles.locationBadge}>
-              <MaterialCommunityIcons name="map-marker-distance" size={14} color="#FFF" />
+              <MaterialCommunityIcons name="ambulance" size={14} color="#FFF" />
               <Text style={styles.badgeText}>
-                {distance.toFixed(1)} km ({eta} ph)
+                {licensePlate} • {distance.toFixed(1)} km ({eta} ph)
               </Text>
             </View>
             <TouchableOpacity onPress={openGoogleMaps} style={styles.googleMapsBtn}>
-              <Text style={styles.googleMapsBtnText}>MỞ BẢN ĐỒ NGOÀI</Text>
+              <Ionicons name="navigate-circle-outline" size={14} color="#34D399" style={{ marginRight: 4 }} />
+              <Text style={styles.googleMapsBtnText}>MỞ GOOGLE MAPS</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.addressText}>{victimAddress}</Text>
@@ -242,10 +286,10 @@ export default function NavigationScreen() {
 
             <TouchableOpacity
               onPress={callVictim}
-              style={[styles.callButton, { backgroundColor: '#151B26' }]}
+              style={[styles.callButton, { backgroundColor: '#1E293B' }]}
             >
-              <Ionicons name="call" size={18} color="#FFF" />
-              <Text style={styles.callButtonText}>GỌI ĐIỆN</Text>
+              <Ionicons name="call" size={16} color="#34D399" />
+              <Text style={styles.callButtonText}>GỌI NẠN NHÂN</Text>
             </TouchableOpacity>
           </View>
 
@@ -253,18 +297,32 @@ export default function NavigationScreen() {
 
           <View style={styles.simStatusRow}>
             <MaterialCommunityIcons
-              name={simStatus === 'RUNNING' ? 'play-circle' : simStatus === 'COMPLETED' ? 'check-circle' : simStatus === 'STOPPED' ? 'stop-circle' : 'circle-outline'}
+              name={
+                simStatus === 'RUNNING'
+                  ? 'play-circle'
+                  : simStatus === 'COMPLETED'
+                  ? 'check-circle'
+                  : simStatus === 'STOPPED'
+                  ? 'stop-circle'
+                  : 'circle-outline'
+              }
               size={14}
-              color={simStatus === 'RUNNING' ? '#32D583' : simStatus === 'COMPLETED' ? '#A78BFA' : simStatus === 'STOPPED' ? '#F04438' : '#98A2B3'}
+              color={
+                simStatus === 'RUNNING'
+                  ? '#34D399'
+                  : simStatus === 'COMPLETED'
+                  ? '#A78BFA'
+                  : simStatus === 'STOPPED'
+                  ? '#F87171'
+                  : '#94A3B8'
+              }
             />
             <Text style={styles.simStatusLabel}>
-              SIMULATION: {simStatus}
+              POSTGIS GPS: {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)}
             </Text>
-            {simulation?.id ? (
-              <Text style={styles.simIdLabel} numberOfLines={1}>
-                ID: {simulation.id}
-              </Text>
-            ) : null}
+            <Text style={styles.simIdLabel} numberOfLines={1}>
+              STATUS: {status}
+            </Text>
           </View>
 
           {/* Action Button Workflow */}
@@ -272,19 +330,19 @@ export default function NavigationScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleArrivedScene}
-              style={[styles.mainButton, { backgroundColor: '#12B76A' }]}
+              style={[styles.mainButton, { backgroundColor: '#10B981' }]}
             >
-              <FontAwesome5 name="check" size={14} color="#FFF" style={styles.btnIcon} />
-              <Text style={styles.mainButtonText}>ĐÃ ĐẾN HIỆN TRƯỜNG</Text>
+              <FontAwesome5 name="map-marker-alt" size={14} color="#022C22" style={styles.btnIcon} />
+              <Text style={styles.mainButtonText}>ĐÃ ĐẾN HIỆN TRƯỜNG CẤP CỨU</Text>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               activeOpacity={0.8}
               onPress={handleCompleteMission}
-              style={[styles.mainButton, { backgroundColor: '#F04438' }]}
+              style={[styles.mainButton, { backgroundColor: '#EF4444' }]}
             >
               <FontAwesome5 name="flag-checkered" size={14} color="#FFF" style={styles.btnIcon} />
-              <Text style={styles.mainButtonText}>HOÀN THÀNH CA CỨU HỘ</Text>
+              <Text style={[styles.mainButtonText, { color: '#FFF' }]}>HOÀN THÀNH CA CỨU TRỢ</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -297,7 +355,7 @@ export default function NavigationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0C0E12',
+    backgroundColor: '#070A10',
   },
   safeArea: {
     flex: 1,
@@ -307,16 +365,16 @@ const styles = StyleSheet.create({
     top: 8,
     left: 12,
     right: 12,
-    backgroundColor: '#151B26',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
     borderRadius: 18,
     padding: 16,
     zIndex: 999,
     borderWidth: 1.5,
-    borderColor: '#1F2A37',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 6,
   },
   topCardRow: {
@@ -329,10 +387,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F04438',
+    backgroundColor: '#EF4444',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 10,
+    borderRadius: 8,
   },
   badgeText: {
     color: '#FFF',
@@ -340,31 +398,33 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   googleMapsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 10,
-    backgroundColor: '#1F2A37',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   googleMapsBtnText: {
-    color: '#D0D5DD',
+    color: '#34D399',
     fontSize: 10,
     fontWeight: '800',
   },
   addressText: {
-    color: '#FFF',
+    color: '#F8FAFC',
     fontSize: 14,
     fontWeight: '800',
     marginBottom: 4,
   },
   injuryText: {
-    color: '#98A2B3',
+    color: '#94A3B8',
     fontSize: 12,
     fontWeight: '500',
   },
   progressRow: {
-    marginTop: 12,
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -372,17 +432,17 @@ const styles = StyleSheet.create({
   progressBarBg: {
     flex: 1,
     height: 6,
-    backgroundColor: '#1F2A37',
+    backgroundColor: '#334155',
     borderRadius: 3,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#32D583',
+    backgroundColor: '#10B981',
     borderRadius: 3,
   },
   progressPct: {
-    color: '#32D583',
+    color: '#34D399',
     fontSize: 10,
     fontWeight: '900',
     width: 36,
@@ -391,46 +451,20 @@ const styles = StyleSheet.create({
   mapContainer: {
     flex: 1,
   },
-  victimMarkerOuter: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(240, 68, 56, 0.25)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#F04438',
-  },
-  victimMarkerInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#F04438',
-  },
-  ambulanceMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#32D583',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
   bottomStatusCard: {
     position: 'absolute',
     bottom: 12,
     left: 12,
     right: 12,
-    backgroundColor: '#151B26',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
     borderRadius: 20,
-    padding: 20,
+    padding: 18,
     borderWidth: 1.5,
-    borderColor: '#1F2A37',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.4,
     shadowRadius: 8,
   },
   patientRow: {
@@ -442,57 +476,56 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   patientName: {
-    color: '#FFF',
-    fontSize: 16,
+    color: '#F8FAFC',
+    fontSize: 15,
     fontWeight: '800',
   },
   patientPhone: {
-    color: '#98A2B3',
-    fontSize: 13,
+    color: '#94A3B8',
+    fontSize: 12,
     fontWeight: '600',
     marginTop: 2,
   },
   callButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#1F2A37',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   callButtonText: {
-    color: '#FFF',
-    fontSize: 12,
+    color: '#F8FAFC',
+    fontSize: 11,
     fontWeight: '800',
   },
   divider: {
     height: 1,
-    backgroundColor: '#1F2A37',
-    marginVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginVertical: 12,
   },
   simStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 14,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
   },
   simStatusLabel: {
-    color: '#98A2B3',
+    color: '#94A3B8',
     fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.5,
+    fontWeight: '800',
   },
   simIdLabel: {
     flex: 1,
-    color: '#475467',
+    color: '#34D399',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '800',
     textAlign: 'right',
   },
   mainButton: {
@@ -508,9 +541,9 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   mainButtonText: {
-    color: '#FFF',
+    color: '#022C22',
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
     letterSpacing: 0.5,
   },
 });

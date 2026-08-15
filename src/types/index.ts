@@ -75,6 +75,42 @@ export interface Vehicle {
   driverId?: string;
 }
 
+// Driver Resource Type (API /driver-resource)
+export interface DriverResource {
+  id: string | number;
+  resourceId?: string | number;
+  licensePlate?: string;
+  vehicleNumber?: string;
+  type?: string;
+  vehicleType?: string;
+  status?: 'available' | 'busy' | 'maintenance' | 'offline' | 'en_route' | 'AVAILABLE' | 'BUSY' | 'MAINTENANCE' | 'OFFLINE' | 'EN_ROUTE' | string;
+  providerId?: string | number;
+  providerName?: string;
+  driverId?: string | number;
+  driverName?: string;
+  driverPhone?: string;
+  latitude?: number;
+  longitude?: number;
+  speed?: number;
+  heading?: number;
+  equipment?: string[] | string;
+  fuelLevel?: number;
+  batteryLevel?: number;
+  odometer?: number;
+  lastLocationUpdate?: string;
+  updatedAt?: string;
+  activeMission?: any;
+}
+
+export interface DriverLocationUpdatePayload {
+  latitude: number;
+  longitude: number;
+  speed?: number;
+  heading?: number;
+  accuracy?: number;
+  address?: string;
+}
+
 // Case/Emergency Types
 export type CaseStatus = 
   | 'pending' 

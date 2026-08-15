@@ -1,4 +1,4 @@
-import { AmbulanceSimulation, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
+import { AmbulanceSimulation, DriverLocationUpdatePayload, DriverResource, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
 import { globalConfig } from './config';
 
 // Define API Response Type
@@ -28,6 +28,38 @@ const MOCK_VEHICLES: Vehicle[] = [
   { id: '1', licensePlate: '30A-12345', type: 'ambulance', status: 'available', providerId: '2' },
   { id: '2', licensePlate: '30A-67890', type: 'emergency-car', status: 'busy', providerId: '2' },
 ];
+
+let MOCK_DRIVER_RESOURCE: DriverResource = {
+  id: '1042',
+  resourceId: '1042',
+  licensePlate: '29A-115.88',
+  vehicleNumber: 'AMB-042',
+  type: 'AMBULANCE',
+  vehicleType: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
+  status: 'AVAILABLE',
+  providerId: '2',
+  providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
+  driverId: '3',
+  driverName: 'Bác sĩ / Tài xế Hùng',
+  driverPhone: '0988.115.115',
+  latitude: 21.0091,
+  longitude: 105.8247,
+  speed: 0,
+  heading: 90,
+  fuelLevel: 88,
+  batteryLevel: 96,
+  odometer: 14250,
+  equipment: [
+    'Máy sốc tim ngoài lồng ngực tự động (AED)',
+    'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
+    'Máy thở mini di động chuyên dụng cấp cứu',
+    'Bộ nẹp cố định cột sống & cổ đa năng',
+    'Cáng / Băng ca cứu thương thủy lực gấp gọn',
+    'Bộ sơ cấp cứu & dịch truyền tĩnh mạch'
+  ],
+  lastLocationUpdate: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
 
 const MOCK_PROVIDERS = [
   { id: '2', name: 'Bệnh viện ABC', phoneNumber: '0123456788', email: 'contact@abc.com' },
@@ -288,17 +320,156 @@ class ApiService {
         status: 'pending',
         description: body.description,
         createdAt: new Date().toISOString(),
-        latitude: body.latitude,
-        longitude: body.longitude,
+        latitude: body.location?.latitude ?? body.latitude,
+        longitude: body.location?.longitude ?? body.longitude,
+        audioObjectKey: body.audioObjectKey,
       };
       MOCK_EMERGENCY_CALLS.unshift(newCall);
       return newCall as T;
     }
     if (path === '/calls/my-calls') return MOCK_EMERGENCY_CALLS as T;
-    if (path.startsWith('/calls/')) {
+    // GET /calls/{id}
+    if (/^\/calls\/[^/]+$/.test(path) && (!options.method || options.method === 'GET')) {
       const id = path.split('/')[2];
       const call = MOCK_EMERGENCY_CALLS.find(c => c.id === id);
       if (call) return call as T;
+      throw new Error('Call not found');
+    }
+    // GET /calls/{id}/tracking - reporter tracking endpoint
+    if (/^\/calls\/[^/]+\/tracking$/.test(path)) {
+      const callId = path.split('/')[2];
+      // Simulate a tracking update for the call
+      const call = MOCK_EMERGENCY_CALLS.find(c => c.id === callId) || MOCK_EMERGENCY_CALLS[0];
+      const startLat = (call?.latitude as number || 21.028511) + 0.008;
+      const startLng = (call?.longitude as number || 105.804817) + 0.006;
+      const endLat = call?.latitude as number || 21.028511;
+      const endLng = call?.longitude as number || 105.804817;
+      const now = Date.now();
+      const t = Math.min(1, ((now % 120000) / 120000)); // 2-minute cycle
+      const currentLat = startLat + (endLat - startLat) * t;
+      const currentLng = startLng + (endLng - startLng) * t;
+      const totalTimeSec = 480;
+      const eta = Math.max(0, Math.floor(totalTimeSec * (1 - t)));
+      const progress = t * 100;
+      const distanceTraveled = t * 1.2;
+
+      const status = t < 0.02 ? 'CREATED' : t < 0.98 ? 'RUNNING' : 'COMPLETED';
+
+      return {
+        simulationId: null,
+        missionId: callId,
+        currentLocation: { lat: currentLat, lng: currentLng },
+        speed: status === 'RUNNING' ? 35 + Math.random() * 20 : 0,
+        heading: 0,
+        progress,
+        estimatedTimeArrival: eta,
+        distanceTraveled,
+        timestamp: new Date().toISOString(),
+        status,
+      } as T;
+    }
+
+    // --- DISPATCH MISSION (driver) MOCK ENDPOINTS ---
+    // GET /dispatch-missions/me/active - Lấy mission active của driver hiện tại
+    if (path === '/dispatch-missions/me/active') {
+      // Giả lập: có 1 mission demo đang chờ
+      return {
+        id: `DM-${Date.now() % 100000}`,
+        status: 'ASSIGNED',
+        priority: 'HIGH',
+        victim: {
+          name: 'Nguyễn Văn A',
+          phone: '0987654321',
+          address: '12 Chùa Bộc, Đống Đa, Hà Nội',
+          latitude: 21.0091,
+          longitude: 105.8247,
+        },
+        injury: 'Tai nạn giao thông - Chấn thương chân',
+        reporterName: 'Trần Thị B',
+        reportedAt: new Date(Date.now() - 120000).toISOString(),
+        estimatedDistanceKm: 1.2,
+        estimatedEtaMin: 4,
+      } as T;
+    }
+    // GET /dispatch-missions/{missionId}/tracking - Lấy tracking cho mission
+    if (/^\/dispatch-missions\/[^/]+\/tracking$/.test(path)) {
+      const missionId = path.split('/')[3];
+      // Use same simulated movement as calls
+      const startLat = 21.0091 + 0.008;
+      const startLng = 105.8247 + 0.006;
+      const endLat = 21.0091;
+      const endLng = 105.8247;
+      const now = Date.now();
+      const t = Math.min(1, ((now % 120000) / 120000));
+      const currentLat = startLat + (endLat - startLat) * t;
+      const currentLng = startLng + (endLng - startLng) * t;
+      const totalTimeSec = 480;
+      const eta = Math.max(0, Math.floor(totalTimeSec * (1 - t)));
+      const progress = t * 100;
+      const distanceTraveled = t * 1.2;
+
+      const status = t < 0.02 ? 'CREATED' : t < 0.98 ? 'RUNNING' : 'COMPLETED';
+
+      return {
+        simulationId: null,
+        missionId,
+        currentLocation: { lat: currentLat, lng: currentLng },
+        speed: status === 'RUNNING' ? 35 + Math.random() * 20 : 0,
+        heading: 0,
+        progress,
+        estimatedTimeArrival: eta,
+        distanceTraveled,
+        timestamp: new Date().toISOString(),
+        status,
+      } as T;
+    }
+
+    // --- DRIVER RESOURCE (DRIVER API) MOCK ENDPOINTS ---
+    // GET /driver-resource - Xem chi tiết xe cứu thương hiện tại
+    if (path === '/driver-resource' && (!options.method || options.method === 'GET')) {
+      return MOCK_DRIVER_RESOURCE as T;
+    }
+
+    // PATCH /driver-resource/{id}/location - Cập nhật vị trí xe cứu thương
+    if (/^\/driver-resource\/[^/]+\/location$/.test(path) && options.method === 'PATCH') {
+      const id = path.split('/')[2];
+      const body = JSON.parse(options.body as string || '{}');
+      const newLat = body.latitude ?? body.lat ?? MOCK_DRIVER_RESOURCE.latitude;
+      const newLng = body.longitude ?? body.lng ?? MOCK_DRIVER_RESOURCE.longitude;
+      MOCK_DRIVER_RESOURCE = {
+        ...MOCK_DRIVER_RESOURCE,
+        id,
+        latitude: Number(newLat),
+        longitude: Number(newLng),
+        speed: typeof body.speed === 'number' ? body.speed : MOCK_DRIVER_RESOURCE.speed,
+        heading: typeof body.heading === 'number' ? body.heading : MOCK_DRIVER_RESOURCE.heading,
+        lastLocationUpdate: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        code: 200,
+        success: true,
+        message: 'Cập nhật vị trí xe cứu thương thành công',
+        data: MOCK_DRIVER_RESOURCE,
+      } as T;
+    }
+
+    // PATCH /driver-resource/{id}/status - Cập nhật trạng thái xe cứu thương
+    if (/^\/driver-resource\/[^/]+\/status$/.test(path) && options.method === 'PATCH') {
+      const id = path.split('/')[2];
+      const body = JSON.parse(options.body as string || '{}');
+      MOCK_DRIVER_RESOURCE = {
+        ...MOCK_DRIVER_RESOURCE,
+        id,
+        status: body.status || MOCK_DRIVER_RESOURCE.status,
+        updatedAt: new Date().toISOString(),
+      };
+      return {
+        code: 200,
+        success: true,
+        message: 'Cập nhật trạng thái xe cứu thương thành công',
+        data: MOCK_DRIVER_RESOURCE,
+      } as T;
     }
 
     // --- AMBULANCE SIMULATION MOCK ENDPOINTS ---
@@ -580,7 +751,7 @@ class ApiService {
 
   // --- 3. FILE STORAGE ---
 
-  async uploadFile(formData: FormData, timeoutMs = 60000) {
+  async uploadFile(formData: FormData, timeoutMs = 60000): Promise<any> {
     const baseUrl = globalConfig.getApiBaseUrl();
     const token = globalConfig.getToken();
 
@@ -670,6 +841,10 @@ class ApiService {
 
   async getCallDetail(id: string) {
     return await this.request(`/calls/${id}`);
+  }
+
+  async getCallTracking(callId: string): Promise<TrackingUpdate> {
+    return await this.request(`/calls/${callId}/tracking`);
   }
 
   async getMyCalls() {
@@ -902,6 +1077,41 @@ class ApiService {
 
   async getSimulationTrackingByMission(missionId: string): Promise<TrackingUpdate> {
     return await this.request(`/ambulance-simulations/by-mission/${missionId}/tracking`);
+  }
+
+  // --- 12. DRIVER RESOURCE (DRIVER API) ---
+
+  /**
+   * GET /driver-resource: Xem chi tiết xe cứu thương hiện tại của tài xế
+   */
+  async getDriverResource(): Promise<DriverResource> {
+    return await this.request<DriverResource>('/driver-resource');
+  }
+
+  /**
+   * PATCH /driver-resource/{id}/location: Cập nhật vị trí xe cứu thương (PostGIS GPS)
+   */
+  async updateDriverResourceLocation(
+    id: string | number,
+    data: DriverLocationUpdatePayload | { latitude: number; longitude: number; speed?: number; heading?: number; accuracy?: number; address?: string }
+  ): Promise<any> {
+    return await this.request(`/driver-resource/${id}/location`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * PATCH /driver-resource/{id}/status: Cập nhật trạng thái trực của xe cứu thương
+   */
+  async updateDriverResourceStatus(
+    id: string | number,
+    status: string
+  ): Promise<any> {
+    return await this.request(`/driver-resource/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
   }
 }
 
