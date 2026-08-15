@@ -80,6 +80,7 @@ export interface DriverResource {
   id: string | number;
   resourceId?: string | number;
   licensePlate?: string;
+  license_plate?: string;
   vehicleNumber?: string;
   type?: string;
   vehicleType?: string;
@@ -100,6 +101,51 @@ export interface DriverResource {
   lastLocationUpdate?: string;
   updatedAt?: string;
   activeMission?: any;
+  extended_attributes?: Record<string, any> | string | null;
+  extendedAttributes?: Record<string, any> | string | null;
+}
+
+/**
+ * Trích xuất biển số xe từ extended_attributes / extendedAttributes hoặc các trường trực tiếp
+ */
+export function getResourceLicensePlate(resource?: DriverResource | null): string {
+  if (!resource) return 'Chưa gán xe';
+
+  // 1. Kiểm tra extended_attributes (hoặc extendedAttributes)
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  if (ext) {
+    let extObj: any = ext;
+    if (typeof ext === 'string') {
+      try {
+        extObj = JSON.parse(ext);
+      } catch {
+        extObj = {};
+      }
+    }
+    if (typeof extObj === 'object' && extObj !== null) {
+      const plate =
+        extObj.license_plate ||
+        extObj.licensePlate ||
+        extObj.plate_number ||
+        extObj.plateNumber ||
+        extObj.bien_so ||
+        extObj.bienSo ||
+        extObj.plate ||
+        extObj.license;
+      if (plate && typeof plate === 'string' && plate.trim().length > 0) {
+        return plate.trim();
+      }
+    }
+  }
+
+  // 2. Fallback sang các trường trực tiếp
+  return (
+    resource.licensePlate ||
+    (resource as any).license_plate ||
+    resource.vehicleNumber ||
+    (resource as any).plate_number ||
+    (resource.id ? `XE-${resource.id}` : 'Chưa có biển số')
+  );
 }
 
 export interface DriverLocationUpdatePayload {
@@ -148,6 +194,8 @@ export interface EmergencyCall {
   assignedHospital?: string;
   estimatedEtaMin?: number;
   notes?: string;
+  extended_attributes?: Record<string, any> | string | null;
+  extendedAttributes?: Record<string, any> | string | null;
 }
 
 export interface CallStatusResponse {
@@ -163,6 +211,8 @@ export interface CallStatusResponse {
     driverPhone?: string;
     hospitalName?: string;
     etaMinutes?: number;
+    extended_attributes?: Record<string, any> | string | null;
+    extendedAttributes?: Record<string, any> | string | null;
   };
   stepIndex?: number;
 }

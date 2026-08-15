@@ -14,7 +14,7 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
-import { AmbulanceSimulation, AmbulanceSimulationStatus, DriverResource, LatLng, TrackingUpdate } from '@/types';
+import { AmbulanceSimulation, AmbulanceSimulationStatus, DriverResource, LatLng, TrackingUpdate, getResourceLicensePlate } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
 type MissionStatus = 'EN_ROUTE' | 'ARRIVED_SCENE';
@@ -233,7 +233,7 @@ export default function NavigationScreen() {
   };
 
   const victimLocation: LatLng = { lat: victimLat, lng: victimLng };
-  const licensePlate = driverResource?.licensePlate || '29A-115.88';
+  const licensePlate = getResourceLicensePlate(driverResource);
 
   return (
     <View style={styles.container}>

@@ -28,7 +28,7 @@ import {
 import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
-import { DriverResource, LatLng } from '@/types';
+import { DriverResource, LatLng, getResourceLicensePlate } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
 const { width, height } = Dimensions.get('window');
@@ -456,9 +456,27 @@ export default function DriverDashboard() {
   const currentUser = globalConfig.getCurrentUser();
   const driverName = driverResource?.driverName || currentUser?.name || 'Bác sĩ / Tài xế Cứu Thương';
   const unitBadge = driverResource?.vehicleNumber || (driverResource?.id ? `UNIT: #${driverResource.id}` : 'UNIT: AMB-042');
-  const licensePlate = driverResource?.licensePlate || '29A-115.88';
-  const providerTitle = driverResource?.providerName || 'Bệnh viện Cấp cứu 115 - Chi nhánh Đống Đa';
-  const vehicleTypeStr = driverResource?.vehicleType || driverResource?.type || 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU)';
+  
+  // Trích xuất biển số xe từ extended_attributes hoặc fallback
+  const licensePlate = getResourceLicensePlate(driverResource);
+  
+  // Trích xuất loại xe từ extended_attributes nếu có
+  const extAttrs = driverResource?.extended_attributes || driverResource?.extendedAttributes;
+  let extObj: any = {};
+  if (typeof extAttrs === 'string') {
+    try { extObj = JSON.parse(extAttrs); } catch {}
+  } else if (typeof extAttrs === 'object' && extAttrs) {
+    extObj = extAttrs;
+  }
+
+  const providerTitle = driverResource?.providerName || extObj.hospital || 'Bệnh viện Cấp cứu 115 - Chi nhánh Đống Đa';
+  const vehicleTypeStr =
+    extObj.vehicle_type ||
+    extObj.vehicleType ||
+    extObj.model ||
+    driverResource?.vehicleType ||
+    driverResource?.type ||
+    'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)';
 
   // Parse equipment list
   const equipmentList: string[] = Array.isArray(driverResource?.equipment)

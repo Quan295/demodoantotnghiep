@@ -590,14 +590,20 @@ export default function SOSScreen() {
                         {new Date(item.createdAt).toLocaleString('vi-VN')}
                       </Text>
                     </View>
-                    {item.assignedVehiclePlate ? (
-                      <View style={styles.metaItem}>
-                        <MaterialCommunityIcons name="ambulance" size={13} color="#10B981" />
-                        <Text style={[styles.metaText, { color: '#34D399', fontWeight: '800' }]}>
-                          Xe: {item.assignedVehiclePlate}
-                        </Text>
-                      </View>
-                    ) : null}
+                    {(() => {
+                      const ext: any = typeof item.extended_attributes === 'string'
+                        ? (() => { try { return JSON.parse(item.extended_attributes); } catch { return {}; } })()
+                        : item.extended_attributes || item.extendedAttributes;
+                      const plate = ext?.license_plate || ext?.licensePlate || item.assignedVehiclePlate;
+                      return plate ? (
+                        <View style={styles.metaItem}>
+                          <MaterialCommunityIcons name="ambulance" size={13} color="#10B981" />
+                          <Text style={[styles.metaText, { color: '#34D399', fontWeight: '800' }]}>
+                            Xe: {plate}
+                          </Text>
+                        </View>
+                      ) : null;
+                    })()}
                   </View>
 
                   {/* Actions for each call */}
@@ -741,30 +747,42 @@ export default function SOSScreen() {
                     </View>
 
                     {/* Assigned Unit Details */}
-                    {selectedCallStatus?.assignedUnit?.vehiclePlate && (
-                      <View style={styles.assignedUnitCard}>
-                        <Text style={styles.assignedCardTitle}>ĐỘI XE CỨU THƯƠNG ĐƯỢC ĐIỀU PHỐI</Text>
+                    {(() => {
+                      const unit = selectedCallStatus?.assignedUnit;
+                      const ext: any = typeof unit?.extended_attributes === 'string'
+                        ? (() => { try { return JSON.parse(unit.extended_attributes); } catch { return {}; } })()
+                        : unit?.extended_attributes || unit?.extendedAttributes;
+                      const plate = ext?.license_plate || ext?.licensePlate || unit?.vehiclePlate;
 
-                        <View style={styles.unitDetailRow}>
-                          <Text style={styles.unitLabel}>Biển số xe:</Text>
-                          <Text style={[styles.unitValue, { color: '#34D399' }]}>
-                            {selectedCallStatus.assignedUnit.vehiclePlate}
-                          </Text>
+                      if (!plate && !unit?.driverName) return null;
+
+                      return (
+                        <View style={styles.assignedUnitCard}>
+                          <Text style={styles.assignedCardTitle}>ĐỘI XE CỨU THƯƠNG ĐƯỢC ĐIỀU PHỐI</Text>
+
+                          {plate ? (
+                            <View style={styles.unitDetailRow}>
+                              <Text style={styles.unitLabel}>Biển số xe:</Text>
+                              <Text style={[styles.unitValue, { color: '#34D399' }]}>
+                                {plate}
+                              </Text>
+                            </View>
+                          ) : null}
+                          <View style={styles.unitDetailRow}>
+                            <Text style={styles.unitLabel}>Bác sĩ / Tài xế:</Text>
+                            <Text style={styles.unitValue}>
+                              {unit?.driverName || 'Bác sĩ Hùng'}
+                            </Text>
+                          </View>
+                          <View style={styles.unitDetailRow}>
+                            <Text style={styles.unitLabel}>Đơn vị y tế:</Text>
+                            <Text style={styles.unitValue}>
+                              {unit?.hospitalName || 'Bệnh viện Cấp Cứu 115'}
+                            </Text>
+                          </View>
                         </View>
-                        <View style={styles.unitDetailRow}>
-                          <Text style={styles.unitLabel}>Bác sĩ / Tài xế:</Text>
-                          <Text style={styles.unitValue}>
-                            {selectedCallStatus.assignedUnit.driverName || 'Bác sĩ Hùng'}
-                          </Text>
-                        </View>
-                        <View style={styles.unitDetailRow}>
-                          <Text style={styles.unitLabel}>Đơn vị y tế:</Text>
-                          <Text style={styles.unitValue}>
-                            {selectedCallStatus.assignedUnit.hospitalName || 'Bệnh viện Cấp Cứu 115'}
-                          </Text>
-                        </View>
-                      </View>
-                    )}
+                      );
+                    })()}
 
                     {/* Track Button in Modal */}
                     <TouchableOpacity

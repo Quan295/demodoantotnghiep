@@ -33,6 +33,7 @@ let MOCK_DRIVER_RESOURCE: DriverResource = {
   id: '1042',
   resourceId: '1042',
   licensePlate: '29A-115.88',
+  license_plate: '29A-115.88',
   vehicleNumber: 'AMB-042',
   type: 'AMBULANCE',
   vehicleType: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
@@ -57,6 +58,13 @@ let MOCK_DRIVER_RESOURCE: DriverResource = {
     'Cáng / Băng ca cứu thương thủy lực gấp gọn',
     'Bộ sơ cấp cứu & dịch truyền tĩnh mạch'
   ],
+  extended_attributes: {
+    license_plate: '29A-115.88',
+    vehicle_type: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
+    model: 'Ford Transit Emergency ICU 2024',
+    oxygen_capacity: '10L',
+    aed_fitted: true,
+  },
   lastLocationUpdate: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 };

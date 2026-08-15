@@ -187,10 +187,29 @@ export default function TrackingScreen() {
     callDetail?.assignedDriverName ||
     'Bác sĩ / Tài xế Hùng';
 
-  const vehiclePlate =
-    callStatusData?.assignedUnit?.vehiclePlate ||
-    callDetail?.assignedVehiclePlate ||
-    '29A-115.88';
+  const extractUnitPlate = () => {
+    const unit = callStatusData?.assignedUnit;
+    const unitExt: any = typeof unit?.extended_attributes === 'string'
+      ? (() => { try { return JSON.parse(unit.extended_attributes); } catch { return {}; } })()
+      : unit?.extended_attributes || unit?.extendedAttributes;
+
+    const callExt: any = typeof callDetail?.extended_attributes === 'string'
+      ? (() => { try { return JSON.parse(callDetail.extended_attributes); } catch { return {}; } })()
+      : callDetail?.extended_attributes || callDetail?.extendedAttributes;
+
+    return (
+      unit?.vehiclePlate ||
+      unitExt?.license_plate ||
+      unitExt?.licensePlate ||
+      unitExt?.plate_number ||
+      callExt?.license_plate ||
+      callExt?.licensePlate ||
+      callDetail?.assignedVehiclePlate ||
+      '29A-115.88'
+    );
+  };
+
+  const vehiclePlate = extractUnitPlate();
 
   const hospitalName =
     callStatusData?.assignedUnit?.hospitalName ||
