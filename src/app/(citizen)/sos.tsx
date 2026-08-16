@@ -645,7 +645,8 @@ export default function SOSScreen() {
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <MaterialCommunityIcons name="phone-off" size={48} color="#334155" />
