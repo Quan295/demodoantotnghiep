@@ -43,95 +43,38 @@ const MOCK_VEHICLES: Vehicle[] = [
 
 let MOCK_DISPATCH_MISSIONS: DispatchMission[] = [
   {
-    id: 'DM-101',
-    callId: 'call-881',
-    emergencyCallId: 'call-881',
-    driverId: '3',
-    driverName: 'Bác sĩ / Tài xế Hùng',
-    driverPhone: '0988.115.115',
-    vehicleId: '1042',
-    vehiclePlate: '29A-115.88',
-    providerId: '2',
-    providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
-    hospitalName: 'Bệnh viện Cấp Cứu 115 (Khoa Cấp Cứu)',
-    hospitalAddress: 'Số 1 Chùa Bộc, Trung Tự, Đống Đa, Hà Nội',
-    hospitalLocation: { lat: 21.0075, lng: 105.8285 },
-    status: 'ASSIGNED',
-    priority: 'HIGH',
-    description: 'Tai nạn xe máy ngã trượt trên đường, nghi gãy xương cẳng chân phải, chảy máu nhiều',
-    injury: 'Chấn thương gãy chân - Cần nẹp cố định & cầm máu',
-    patientName: 'Nguyễn Văn Nam',
-    patientPhone: '0987.654.321',
-    victimName: 'Nguyễn Văn Nam',
-    victimPhone: '0987.654.321',
-    victimAddress: '12 Chùa Bộc, Đống Đa, Hà Nội (Gần ngã tư Phạm Ngọc Thạch)',
-    pickupAddress: '12 Chùa Bộc, Đống Đa, Hà Nội',
-    pickupLocation: { lat: 21.0091, lng: 105.8247 },
-    dropoffLocation: { lat: 21.0075, lng: 105.8285 },
-    latitude: 21.0091,
-    longitude: 105.8247,
-    distanceKm: 1.2,
-    estimatedEtaMin: 4,
-    createdAt: new Date(Date.now() - 300000).toISOString(),
-    updatedAt: new Date(Date.now() - 100000).toISOString(),
-    extended_attributes: {
-      license_plate: '29A-115.88',
-      driver_name: 'Bác sĩ / Tài xế Hùng',
-      hospital_name: 'Bệnh viện Cấp Cứu 115',
-    },
+    id: 3,
+    requestId: 3,
+    resourceId: 2,
+    destinationName: '12 Chùa Bộc, Đống Đa, Hà Nội',
+    status: 'DISPATCHED',
+    dispatchedAt: new Date(Date.now() - 300000).toISOString(),
+    notes: 'Tai nạn giao thông - Yêu cầu cấp cứu khẩn cấp',
   },
   {
-    id: 'DM-100',
-    callId: 'call-790',
-    emergencyCallId: 'call-790',
-    driverId: '3',
-    driverName: 'Bác sĩ / Tài xế Hùng',
-    driverPhone: '0988.115.115',
-    vehicleId: '1042',
-    vehiclePlate: '29A-115.88',
-    providerId: '2',
-    providerName: 'Bệnh viện Cấp Cứu 115',
-    hospitalName: 'Bệnh viện Bạch Mai (Khoa Cấp Cứu A9)',
-    hospitalAddress: '78 Giải Phóng, Phương Mai, Đống Đa, Hà Nội',
+    id: 2,
+    requestId: 2,
+    resourceId: 2,
+    destinationName: '45 Tây Sơn, Đống Đa, Hà Nội',
     status: 'COMPLETED',
-    priority: 'CRITICAL',
-    description: 'Nạn nhân bị đau tim co thắt ngực tại nhà, khó thở nghiêm trọng',
-    injury: 'Cơn đau thắt ngực cấp tính - Hồi sức tim phổi thành công',
-    patientName: 'Trần Thị Thu',
-    patientPhone: '0912.345.678',
-    victimName: 'Trần Thị Thu',
-    victimPhone: '0912.345.678',
-    victimAddress: '45 Tây Sơn, Quang Trung, Đống Đa, Hà Nội',
-    pickupAddress: '45 Tây Sơn, Quang Trung, Đống Đa, Hà Nội',
-    pickupLocation: { lat: 21.0125, lng: 105.8210 },
-    distanceKm: 2.8,
-    estimatedEtaMin: 0,
-    startTime: new Date(Date.now() - 7200000).toISOString(),
-    arrivedSceneTime: new Date(Date.now() - 6600000).toISOString(),
-    startTransportTime: new Date(Date.now() - 5400000).toISOString(),
-    arrivedHospitalTime: new Date(Date.now() - 4200000).toISOString(),
-    completedTime: new Date(Date.now() - 3600000).toISOString(),
-    createdAt: new Date(Date.now() - 7500000).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+    dispatchedAt: new Date(Date.now() - 7500000).toISOString(),
+    acceptedAt: new Date(Date.now() - 7200000).toISOString(),
+    enRouteAt: new Date(Date.now() - 6600000).toISOString(),
+    arrivedSceneAt: new Date(Date.now() - 5400000).toISOString(),
+    startTransportAt: new Date(Date.now() - 4800000).toISOString(),
+    arrivedHospitalAt: new Date(Date.now() - 4200000).toISOString(),
+    completedAt: new Date(Date.now() - 3600000).toISOString(),
+    notes: 'Đã hoàn tất chuyển viện an toàn',
   },
   {
-    id: 'DM-099',
-    callId: 'call-650',
-    emergencyCallId: 'call-650',
-    driverId: '3',
-    driverName: 'Bác sĩ / Tài xế Hùng',
-    driverPhone: '0988.115.115',
-    vehicleId: '1042',
-    vehiclePlate: '29A-115.88',
+    id: 1,
+    requestId: 1,
+    resourceId: 2,
+    destinationName: '88 Thái Hà, Đống Đa, Hà Nội',
     status: 'COMPLETED',
-    priority: 'MEDIUM',
-    description: 'Bỏng nước sôi cấp độ 2 tại quán ăn',
-    patientName: 'Lê Hoàng Long',
-    patientPhone: '0903.111.222',
-    victimAddress: '88 Thái Hà, Trung Liệt, Đống Đa, Hà Nội',
-    distanceKm: 1.8,
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    completedTime: new Date(Date.now() - 82800000).toISOString(),
+    dispatchedAt: new Date(Date.now() - 86400000).toISOString(),
+    completedAt: new Date(Date.now() - 82800000).toISOString(),
+    notes: 'Bỏng nước sôi cấp độ 2',
   },
 ];
 
@@ -593,12 +536,11 @@ class ApiService {
       const id = path.split('/')[2];
       const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
       if (mission) {
-        mission.status = 'EN_ROUTE_TO_SCENE';
-        mission.startTime = new Date().toISOString();
-        mission.updatedAt = new Date().toISOString();
+        mission.status = 'EN_ROUTE';
+        mission.enRouteAt = new Date().toISOString();
         return mission as T;
       }
-      return { id, status: 'EN_ROUTE_TO_SCENE', startTime: new Date().toISOString() } as T;
+      return { id, status: 'EN_ROUTE', enRouteAt: new Date().toISOString() } as T;
     }
 
     // POST /dispatch-missions/{id}/arrive-scene
@@ -607,11 +549,10 @@ class ApiService {
       const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
       if (mission) {
         mission.status = 'ARRIVED_SCENE';
-        mission.arrivedSceneTime = new Date().toISOString();
-        mission.updatedAt = new Date().toISOString();
+        mission.arrivedSceneAt = new Date().toISOString();
         return mission as T;
       }
-      return { id, status: 'ARRIVED_SCENE', arrivedSceneTime: new Date().toISOString() } as T;
+      return { id, status: 'ARRIVED_SCENE', arrivedSceneAt: new Date().toISOString() } as T;
     }
 
     // POST /dispatch-missions/{id}/start-transport
@@ -620,11 +561,10 @@ class ApiService {
       const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
       if (mission) {
         mission.status = 'TRANSPORTING';
-        mission.startTransportTime = new Date().toISOString();
-        mission.updatedAt = new Date().toISOString();
+        mission.startTransportAt = new Date().toISOString();
         return mission as T;
       }
-      return { id, status: 'TRANSPORTING', startTransportTime: new Date().toISOString() } as T;
+      return { id, status: 'TRANSPORTING', startTransportAt: new Date().toISOString() } as T;
     }
 
     // POST /dispatch-missions/{id}/arrive-hospital
@@ -633,11 +573,10 @@ class ApiService {
       const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
       if (mission) {
         mission.status = 'ARRIVED_HOSPITAL';
-        mission.arrivedHospitalTime = new Date().toISOString();
-        mission.updatedAt = new Date().toISOString();
+        mission.arrivedHospitalAt = new Date().toISOString();
         return mission as T;
       }
-      return { id, status: 'ARRIVED_HOSPITAL', arrivedHospitalTime: new Date().toISOString() } as T;
+      return { id, status: 'ARRIVED_HOSPITAL', arrivedHospitalAt: new Date().toISOString() } as T;
     }
 
     // POST /dispatch-missions/{id}/complete
@@ -646,22 +585,19 @@ class ApiService {
       const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
       if (mission) {
         mission.status = 'COMPLETED';
-        mission.completedTime = new Date().toISOString();
-        mission.updatedAt = new Date().toISOString();
+        mission.completedAt = new Date().toISOString();
         return mission as T;
       }
-      return { id, status: 'COMPLETED', completedTime: new Date().toISOString() } as T;
+      return { id, status: 'COMPLETED', completedAt: new Date().toISOString() } as T;
     }
 
     // GET /dispatch-missions/me/active - Lấy mission active của driver hiện tại
     if (path === '/dispatch-missions/me/active') {
       const active = MOCK_DISPATCH_MISSIONS.find(m =>
-        m.status === 'ASSIGNED' ||
+        m.status === 'DISPATCHED' ||
         m.status === 'ACCEPTED' ||
-        m.status === 'STARTED' ||
-        m.status === 'EN_ROUTE_TO_SCENE' ||
+        m.status === 'EN_ROUTE' ||
         m.status === 'ARRIVED_SCENE' ||
-        m.status === 'START_TRANSPORT' ||
         m.status === 'TRANSPORTING' ||
         m.status === 'ARRIVED_HOSPITAL'
       );

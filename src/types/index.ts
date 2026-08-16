@@ -78,20 +78,27 @@ export interface Vehicle {
 // Driver Resource Type (API /driver-resource)
 export interface DriverResource {
   id: string | number;
+  resourceCode?: string | null;
+  resourceType?: string | null;
+  status?: string | null;
+  driverId?: string | number | null;
+  driverName?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  extendedAttributes?: Record<string, any> | null;
+  extended_attributes?: Record<string, any> | null;
+  updatedAt?: string | null;
+
+  // Optional fields
   resourceId?: string | number;
   licensePlate?: string;
   license_plate?: string;
   vehicleNumber?: string;
   type?: string;
   vehicleType?: string;
-  status?: 'available' | 'busy' | 'maintenance' | 'offline' | 'en_route' | 'AVAILABLE' | 'BUSY' | 'MAINTENANCE' | 'OFFLINE' | 'EN_ROUTE' | string;
   providerId?: string | number;
   providerName?: string;
-  driverId?: string | number;
-  driverName?: string;
   driverPhone?: string;
-  latitude?: number;
-  longitude?: number;
   speed?: number;
   heading?: number;
   equipment?: string[] | string;
@@ -99,10 +106,7 @@ export interface DriverResource {
   batteryLevel?: number;
   odometer?: number;
   lastLocationUpdate?: string;
-  updatedAt?: string;
   activeMission?: any;
-  extended_attributes?: Record<string, any> | string | null;
-  extendedAttributes?: Record<string, any> | string | null;
 }
 
 /**
@@ -375,22 +379,41 @@ export interface CallStatusResponse {
 
 // --- Dispatch Mission Types (DRIVER - Mission API) ---
 export type DispatchMissionStatus =
-  | 'PENDING'
-  | 'ASSIGNED'
+  | 'CREATED'
+  | 'DISPATCHED'
   | 'ACCEPTED'
   | 'REJECTED'
-  | 'STARTED'
-  | 'EN_ROUTE_TO_SCENE'
+  | 'EN_ROUTE'
   | 'ARRIVED_SCENE'
-  | 'START_TRANSPORT'
   | 'TRANSPORTING'
   | 'ARRIVED_HOSPITAL'
   | 'COMPLETED'
   | 'CANCELLED'
+  | 'FAILED'
+  | 'TIMEOUT'
   | string;
 
 export interface DispatchMission {
   id: string | number;
+  requestId: string | number;
+  resourceId: string | number;
+  destinationName?: string | null;
+  status: DispatchMissionStatus;
+
+  dispatchedAt?: string | null;
+  acceptedAt?: string | null;
+  enRouteAt?: string | null;
+  arrivedSceneAt?: string | null;
+  startTransportAt?: string | null;
+  arrivedHospitalAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+
+  rejectReason?: string | null;
+  cancelReason?: string | null;
+  notes?: string | null;
+
+  // Optional legacy / fallback support
   callId?: string | number;
   emergencyCallId?: string | number;
   driverId?: string | number;
@@ -403,8 +426,7 @@ export interface DispatchMission {
   hospitalName?: string;
   hospitalAddress?: string;
   hospitalLocation?: LatLng;
-  status: DispatchMissionStatus;
-  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  priority?: string;
   description?: string;
   injury?: string;
   patientName?: string;
@@ -419,12 +441,7 @@ export interface DispatchMission {
   longitude?: number;
   distanceKm?: number;
   estimatedEtaMin?: number;
-  startTime?: string;
-  arrivedSceneTime?: string;
-  startTransportTime?: string;
-  arrivedHospitalTime?: string;
-  completedTime?: string;
-  createdAt: string;
+  createdAt?: string;
   updatedAt?: string;
   extended_attributes?: Record<string, any> | string | null;
   extendedAttributes?: Record<string, any> | string | null;

@@ -32,14 +32,10 @@ import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
 import {
   DispatchMission,
+  DispatchMissionStatus,
   DriverResource,
   LatLng,
   getResourceLicensePlate,
-  getResourceDriverName,
-  getResourceDriverPhone,
-  getResourceProviderName,
-  getResourceVehicleType,
-  getResourceEquipmentList,
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
@@ -51,7 +47,7 @@ interface LocationSyncLog {
   coords: string;
   speed: number;
   status: string;
-  source: 'AUTO_GPS' | 'MANUAL' | 'SIMULATION';
+  source: 'AUTO_GPS' | 'MANUAL';
 }
 
 export default function DriverDashboard() {
@@ -63,6 +59,8 @@ export default function DriverDashboard() {
   // Resource State from API (GET /driver-resource)
   const [driverResource, setDriverResource] = useState<DriverResource | null>(null);
   const [loadingResource, setLoadingResource] = useState<boolean>(true);
+  const [resourceError, setResourceError] = useState<string | null>(null);
+  const [resourceConnected, setResourceConnected] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
   // Status & GPS State
@@ -93,21 +91,12 @@ export default function DriverDashboard() {
     accuracy: 5,
   });
 
-  // GPS Logs List
-  const [gpsLogs, setGpsLogs] = useState<LocationSyncLog[]>([
-    {
-      id: 'init-1',
-      time: new Date().toLocaleTimeString('vi-VN'),
-      coords: '21.009100° N, 105.824700° E',
-      speed: 0,
-      status: '200 OK (PostGIS Point Updated)',
-      source: 'AUTO_GPS',
-    },
-  ]);
+  // GPS Logs List (Local session logs only)
+  const [gpsLogs, setGpsLogs] = useState<LocationSyncLog[]>([]);
 
   // Incoming Mission Alert State
   const [showIncomingOrder, setShowIncomingOrder] = useState<boolean>(false);
-  const [activeMission, setActiveMission] = useState<any>(null);
+  const [activeMission, setActiveMission] = useState<DispatchMission | null>(null);
 
   // Animations
   const flashAnim = useRef(new Animated.Value(0)).current;
@@ -125,83 +114,51 @@ export default function DriverDashboard() {
   useEffect(() => { isAvailableRef.current = isAvailable; }, [isAvailable]);
   useEffect(() => { currentCoordsRef.current = currentCoords; }, [currentCoords]);
 
-  // 1. Fetch Driver Resource via GET /driver-resource
+  // 1. Fetch Driver Resource via GET /driver-resource (No fake fallback)
   const fetchDriverResource = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoadingResource(true);
+      setResourceError(null);
 
       const resource = await api.getDriverResource();
       console.log('[DriverDashboard] Fetched Driver Resource:', resource);
       if (resource) {
         setDriverResource(resource);
+        setResourceConnected(true);
         if (resource.latitude && resource.longitude) {
           setCurrentCoords(prev => ({
             ...prev,
             latitude: Number(resource.latitude),
             longitude: Number(resource.longitude),
-            speed: resource.speed || 0,
-            heading: resource.heading || 0,
           }));
         }
         const statusUpper = (resource.status || '').toUpperCase();
         setIsAvailable(statusUpper === 'AVAILABLE' || statusUpper === 'SẴN SÀNG');
+      } else {
+        setResourceConnected(false);
       }
     } catch (err: any) {
       console.error('[DriverDashboard] Error fetching driver resource:', err?.message || err);
-      setDriverResource(prev => prev || {
-        id: '1042',
-        licensePlate: '29A-115.88',
-        license_plate: '29A-115.88',
-        vehicleNumber: 'AMB-042',
-        type: 'AMBULANCE',
-        vehicleType: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
-        status: 'AVAILABLE',
-        providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
-        driverName: 'Bác sĩ / Tài xế Hùng',
-        driverPhone: '0988.115.115',
-        latitude: 21.0091,
-        longitude: 105.8247,
-        speed: 0,
-        heading: 90,
-        fuelLevel: 88,
-        batteryLevel: 96,
-        odometer: 14250,
-        equipment: [
-          'Máy sốc tim ngoài lồng ngực tự động (AED)',
-          'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
-          'Máy thở mini di động chuyên dụng cấp cứu',
-          'Bộ nẹp cố định cột sống & cổ đa năng',
-          'Cáng / Băng ca cứu thương thủy lực gấp gọn',
-          'Bộ sơ cấp cứu & dịch truyền tĩnh mạch',
-        ],
-        extended_attributes: {
-          license_plate: '29A-115.88',
-          vehicle_type: 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)',
-          hospital_name: 'Bệnh viện Cấp Cứu 115',
-        },
-        updatedAt: new Date().toISOString(),
-      });
+      setDriverResource(null);
+      setResourceConnected(false);
+      setResourceError('Không thể tải thông tin xe từ máy chủ backend');
     } finally {
       setLoadingResource(false);
       setRefreshing(false);
     }
   }, []);
 
-  // 2. Fetch Active Missions (GET /dispatch-missions/me/active)
+  // 2. Fetch Active Missions (GET /dispatch-missions/me/active) with exact BE status matching
   const fetchActiveMissions = useCallback(async () => {
     try {
       const activeList = await api.getMyActiveMissions();
       if (Array.isArray(activeList) && activeList.length > 0) {
-        const assignedOrder = activeList.find(m => m.status === 'ASSIGNED' || m.status === 'PENDING');
+        // DISPATCHED: new incoming assignment awaiting driver acceptance
+        const assignedOrder = activeList.find(m => m.status === 'DISPATCHED');
+        // Ongoing mission in progress
         const runningOrder = activeList.find(m =>
-          m.status === 'ACCEPTED' ||
-          m.status === 'STARTED' ||
-          m.status === 'EN_ROUTE_TO_SCENE' ||
-          m.status === 'ARRIVED_SCENE' ||
-          m.status === 'START_TRANSPORT' ||
-          m.status === 'TRANSPORTING' ||
-          m.status === 'ARRIVED_HOSPITAL'
+          ['ACCEPTED', 'EN_ROUTE', 'ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL'].includes(m.status)
         );
 
         if (assignedOrder && !showIncomingOrder) {
@@ -254,7 +211,7 @@ export default function DriverDashboard() {
     speed = 0,
     heading = 0,
     accuracy = 5,
-    source: 'AUTO_GPS' | 'MANUAL' | 'SIMULATION' = 'AUTO_GPS'
+    source: 'AUTO_GPS' | 'MANUAL' = 'AUTO_GPS'
   ) => {
     try {
       setSyncingLocation(true);
@@ -278,7 +235,7 @@ export default function DriverDashboard() {
         time: nowStr,
         coords: `${lat.toFixed(6)}° N, ${lng.toFixed(6)}° E`,
         speed,
-        status: '200 OK (PostGIS Point Updated)',
+        status: 'Đã đồng bộ lên máy chủ',
         source,
       };
 
@@ -292,7 +249,7 @@ export default function DriverDashboard() {
         time: nowStr,
         coords: `${lat.toFixed(6)}° N, ${lng.toFixed(6)}° E`,
         speed,
-        status: `Lỗi: ${e.message || 'Network error'}`,
+        status: `Đồng bộ thất bại: ${e.message || 'Lỗi mạng'}`,
         source,
       };
       setGpsLogs(prev => [errLog, ...prev.slice(0, 24)]);
@@ -341,20 +298,7 @@ export default function DriverDashboard() {
     }
   };
 
-  // 7. Toggle Driver/Vehicle Status (Available / Busy / Offline)
-  const handleToggleStatus = async (val: boolean) => {
-    setIsAvailable(val);
-    const newStatus = val ? 'AVAILABLE' : 'OFFLINE';
-
-    try {
-      await api.updateDriverResourceStatus(newStatus);
-      setDriverResource(prev => (prev ? { ...prev, status: newStatus } : null));
-    } catch (e) {
-      console.warn('[DriverDashboard] Failed to update resource status:', e);
-    }
-  };
-
-  // 8. Initial Load (Runs ONCE on screen mount)
+  // 7. Initial Load (Runs ONCE on screen mount)
   useEffect(() => {
     fetchDriverResource();
     fetchActiveMissions();
@@ -390,7 +334,7 @@ export default function DriverDashboard() {
     })();
   }, [fetchActiveMissions, fetchDriverResource, fetchMissionsHistory, sendLocationUpdate]);
 
-  // 9. Auto-sync Interval with proper cleanup
+  // 8. Auto-sync Interval with proper cleanup
   useEffect(() => {
     if (autoSyncIntervalRef.current) {
       clearInterval(autoSyncIntervalRef.current);
@@ -434,7 +378,7 @@ export default function DriverDashboard() {
     };
   }, [autoSyncEnabled, isAvailable, sendLocationUpdate]);
 
-  // 10. Incoming Mission Overlay Animation
+  // 9. Incoming Mission Overlay Animation
   useEffect(() => {
     if (showIncomingOrder) {
       Animated.spring(slideAnim, {
@@ -465,22 +409,16 @@ export default function DriverDashboard() {
     }
   }, [showIncomingOrder, flashAnim, radarScale, slideAnim]);
 
-  // Trigger demo incoming emergency order
+  // Trigger demo incoming emergency order (__DEV__ only)
   const handleSimulateIncomingOrder = () => {
     const mission: DispatchMission = {
-      id: `DM-${Math.floor(1000 + Math.random() * 9000)}`,
-      status: 'ASSIGNED',
-      priority: 'HIGH',
-      victimName: 'Nguyễn Văn Nam (48 tuổi)',
-      victimPhone: '0987.654.321',
-      victimAddress: '12 Chùa Bộc, P. Quang Trung, Q. Đống Đa, Hà Nội',
-      pickupAddress: '12 Chùa Bộc, P. Quang Trung, Q. Đống Đa, Hà Nội',
-      latitude: 21.0091,
-      longitude: 105.8247,
-      injury: 'Tai nạn giao thông - Đa chấn thương cẳng chân, cần nẹp cố định',
-      distanceKm: 1.2,
-      estimatedEtaMin: 4,
-      createdAt: new Date().toISOString(),
+      id: 3,
+      requestId: 3,
+      resourceId: 2,
+      destinationName: '12 Chùa Bộc, Đống Đa, Hà Nội',
+      status: 'DISPATCHED',
+      dispatchedAt: new Date().toISOString(),
+      notes: 'Tai nạn giao thông - Yêu cầu cấp cứu khẩn cấp',
     };
     setActiveMission(mission);
     setShowIncomingOrder(true);
@@ -489,7 +427,8 @@ export default function DriverDashboard() {
   // POST /dispatch-missions/{id}/accept
   const handleAcceptOrder = async () => {
     setShowIncomingOrder(false);
-    const missionId = activeMission?.id || `mission_${Date.now()}`;
+    if (!activeMission) return;
+    const missionId = activeMission.id;
     try {
       console.log('[DriverDashboard] Calling POST /dispatch-missions/{id}/accept:', missionId);
       await api.acceptMission(missionId);
@@ -500,14 +439,10 @@ export default function DriverDashboard() {
     router.push({
       pathname: '/(driver)/navigation',
       params: {
-        victimLat: activeMission?.victimLat || activeMission?.latitude?.toString() || '21.0091',
-        victimLng: activeMission?.victimLng || activeMission?.longitude?.toString() || '105.8247',
-        victimName: activeMission?.victimName || activeMission?.patientName || 'Nguyễn Văn Nam',
-        victimAddress: activeMission?.victimAddress || activeMission?.pickupAddress || '12 Chùa Bộc, Đống Đa, Hà Nội',
         missionId: String(missionId),
         dispatchMissionId: String(missionId),
-        victimPhone: activeMission?.victimPhone || activeMission?.patientPhone || '0987.654.321',
-        victimInjury: activeMission?.victimInjury || activeMission?.injury || activeMission?.description || 'Tai nạn giao thông - Chấn thương chân',
+        requestId: String(activeMission.requestId || ''),
+        destinationName: activeMission.destinationName || '',
       },
     });
   };
@@ -518,12 +453,12 @@ export default function DriverDashboard() {
     if (activeMission?.id) {
       try {
         console.log('[DriverDashboard] Calling POST /dispatch-missions/{id}/reject:', activeMission.id);
-        await api.rejectMission(activeMission.id, 'Tài xế bận ca trực khác');
+        await api.rejectMission(activeMission.id, 'Tài xế từ chối ca');
       } catch (e) {
         console.warn('[DriverDashboard] rejectMission error:', e);
       }
     }
-    Alert.alert('Đã Từ Chối Ca', 'Yêu cầu cứu trợ đã được chuyển tiếp tới trung tâm điều phối 115.');
+    Alert.alert('Đã Từ Chối Ca', 'Yêu cầu cứu trợ đã được chuyển tiếp tới trung tâm điều phối.');
     fetchActiveMissions();
   };
 
@@ -545,26 +480,19 @@ export default function DriverDashboard() {
 
   const handleCallDispatcher = () => {
     Linking.openURL('tel:115').catch(() => {
-      Alert.alert('Thông báo', 'Tổng đài điều phối 115: 115 hoặc 1900 1155');
+      Alert.alert('Thông báo', 'Tổng đài điều phối 115: 115');
     });
   };
 
   const currentUser = globalConfig.getCurrentUser();
-  const driverName = getResourceDriverName(driverResource, currentUser);
-  const driverPhone = getResourceDriverPhone(driverResource, currentUser);
-  const unitBadge = driverResource?.vehicleNumber || (driverResource?.id ? `UNIT: #${driverResource.id}` : 'UNIT: AMB-042');
+  const driverName = driverResource?.driverName || currentUser?.name || 'Tài xế';
+  const unitBadge = driverResource?.resourceCode || (driverResource?.id ? `UNIT #${driverResource.id}` : 'Chưa có mã xe');
+  const vehicleType = driverResource?.resourceType || 'Chưa có thông tin loại xe';
   const licensePlate = getResourceLicensePlate(driverResource);
-  const providerTitle = getResourceProviderName(driverResource);
-  const vehicleTypeStr = getResourceVehicleType(driverResource);
-  const equipmentList = getResourceEquipmentList(driverResource);
 
   const mapAmbulanceLocation: LatLng = {
     lat: currentCoords.latitude,
     lng: currentCoords.longitude,
-  };
-  const mapDummyVictim: LatLng = {
-    lat: currentCoords.latitude + 0.006,
-    lng: currentCoords.longitude + 0.005,
   };
 
   return (
@@ -587,7 +515,7 @@ export default function DriverDashboard() {
               </View>
               <Text style={styles.welcomeText} numberOfLines={1}>{driverName}</Text>
               <Text style={styles.providerText} numberOfLines={1}>
-                <Ionicons name="business-outline" size={11} color="#94A3B8" /> {providerTitle}
+                <Ionicons name="car-outline" size={11} color="#94A3B8" /> {vehicleType}
               </Text>
             </View>
 
@@ -623,10 +551,8 @@ export default function DriverDashboard() {
                   params: {
                     missionId: String(activeRunningMission.id),
                     dispatchMissionId: String(activeRunningMission.id),
-                    victimName: activeRunningMission.victimName || activeRunningMission.patientName,
-                    victimPhone: activeRunningMission.victimPhone || activeRunningMission.patientPhone,
-                    victimAddress: activeRunningMission.victimAddress || activeRunningMission.pickupAddress,
-                    victimInjury: activeRunningMission.injury || activeRunningMission.description,
+                    requestId: String(activeRunningMission.requestId || ''),
+                    destinationName: activeRunningMission.destinationName || '',
                   },
                 });
               }}
@@ -634,17 +560,17 @@ export default function DriverDashboard() {
             >
               <View style={styles.runningBannerLeft}>
                 <View style={styles.pulseDotRed} />
-                <View>
+                <View style={{ flex: 1 }}>
                   <Text style={styles.runningBannerTitle}>
-                    CA CẤP CỨU ĐANG THỰC HIỆN (#{activeRunningMission.id})
+                    NHIỆM VỤ ĐANG THỰC HIỆN (#{activeRunningMission.id}) • YÊU CẦU #{activeRunningMission.requestId}
                   </Text>
                   <Text style={styles.runningBannerSubtitle} numberOfLines={1}>
-                    {activeRunningMission.victimName || 'Nạn nhân'} • {activeRunningMission.pickupAddress || 'Đang vận chuyển'}
+                    {activeRunningMission.destinationName || 'Chưa xác định điểm đến'}
                   </Text>
                 </View>
               </View>
               <View style={styles.runningBannerBtn}>
-                <Text style={styles.runningBannerBtnText}>TIẾP TỤC ĐIỀU HƯỚNG ➔</Text>
+                <Text style={styles.runningBannerBtnText}>TIẾP TỤC ➔</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -706,7 +632,7 @@ export default function DriverDashboard() {
                 color={activeTab === 'logs' ? '#10B981' : '#64748B'}
               />
               <Text style={[styles.tabText, activeTab === 'logs' && styles.tabTextActive]}>
-                Nhật Ký GPS
+                Nhật Ký Phiên
               </Text>
             </TouchableOpacity>
           </View>
@@ -725,15 +651,8 @@ export default function DriverDashboard() {
                 />
               }
             >
-              {/* STATUS TOGGLE CARD */}
-              <TouchableOpacity
-                style={[
-                  styles.statusCard,
-                  { borderColor: isAvailable ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.3)' },
-                ]}
-                activeOpacity={0.9}
-                onPress={() => handleToggleStatus(!isAvailable)}
-              >
+              {/* STATUS CARD (DISABLED SWITCH AS BACKEND DOES NOT SUPPORT PATCH /status) */}
+              <View style={styles.statusCard}>
                 <View style={styles.statusLeft}>
                   <View style={[styles.statusIconBox, { backgroundColor: isAvailable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
                     <MaterialCommunityIcons
@@ -742,21 +661,24 @@ export default function DriverDashboard() {
                       color={isAvailable ? '#10B981' : '#EF4444'}
                     />
                   </View>
-                  <View>
-                    <Text style={styles.statusLabel}>TRẠNG THÁI CA TRỰC TÀI XẾ</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusLabel}>TRẠNG THÁI XE CẤP CỨU</Text>
                     <Text style={[styles.statusValue, { color: isAvailable ? '#34D399' : '#F87171' }]}>
-                      {isAvailable ? 'SẴN SÀNG NHẬN NHIỆM VỤ' : 'TẠM NGHỈ / KHÔNG HOẠT ĐỘNG'}
+                      {driverResource?.status || (isAvailable ? 'AVAILABLE' : 'OFFLINE')}
+                    </Text>
+                    <Text style={styles.statusNote}>
+                      Chức năng cập nhật ca trực chưa được backend hỗ trợ
                     </Text>
                   </View>
                 </View>
 
                 <Switch
                   value={isAvailable}
-                  onValueChange={handleToggleStatus}
+                  disabled={true}
                   trackColor={{ false: '#334155', true: '#059669' }}
                   thumbColor={isAvailable ? '#34D399' : '#94A3B8'}
                 />
-              </TouchableOpacity>
+              </View>
 
               {/* API RESOURCE SUMMARY CARD */}
               <View style={styles.resourceSummaryCard}>
@@ -765,38 +687,25 @@ export default function DriverDashboard() {
                     <FontAwesome5 name="ambulance" size={18} color="#10B981" />
                   </View>
                   <View style={styles.resourceTitleBlock}>
-                    <Text style={styles.resourceVehicleType}>{vehicleTypeStr}</Text>
+                    <Text style={styles.resourceVehicleType}>{vehicleType}</Text>
                     <Text style={styles.resourceSubInfo}>
-                      Mã xe: #{driverResource?.id || '1042'} • Biển: {licensePlate}
+                      Mã xe: {unitBadge} • Biển: {licensePlate}
                     </Text>
                   </View>
-                  <View style={styles.liveTag}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveTagText}>API CONNECTED</Text>
+                  <View style={[styles.liveTag, { backgroundColor: resourceConnected ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)' }]}>
+                    <View style={[styles.liveDot, { backgroundColor: resourceConnected ? '#10B981' : '#EF4444' }]} />
+                    <Text style={[styles.liveTagText, { color: resourceConnected ? '#34D399' : '#F87171' }]}>
+                      {resourceConnected ? 'API CONNECTED' : 'API DISCONNECTED'}
+                    </Text>
                   </View>
                 </View>
 
-                <View style={styles.metricsRow}>
-                  <View style={styles.metricItem}>
-                    <MaterialCommunityIcons name="gas-station" size={16} color="#F59E0B" />
-                    <Text style={styles.metricValue}>{driverResource?.fuelLevel ?? 88}%</Text>
-                    <Text style={styles.metricLabel}>Nhiên liệu</Text>
+                {resourceError ? (
+                  <View style={styles.errorBox}>
+                    <Ionicons name="alert-circle-outline" size={16} color="#F87171" />
+                    <Text style={styles.errorText}>{resourceError}</Text>
                   </View>
-                  <View style={styles.metricDivider} />
-                  <View style={styles.metricItem}>
-                    <MaterialCommunityIcons name="battery-charging-90" size={16} color="#10B981" />
-                    <Text style={styles.metricValue}>{driverResource?.batteryLevel ?? 96}%</Text>
-                    <Text style={styles.metricLabel}>Ắc quy ICU</Text>
-                  </View>
-                  <View style={styles.metricDivider} />
-                  <View style={styles.metricItem}>
-                    <MaterialCommunityIcons name="speedometer" size={16} color="#38BDF8" />
-                    <Text style={styles.metricValue}>
-                      {(driverResource?.odometer ?? 14250).toLocaleString()} km
-                    </Text>
-                    <Text style={styles.metricLabel}>Odometer</Text>
-                  </View>
-                </View>
+                ) : null}
               </View>
 
               {/* GPS POSTGIS SYNCHRONIZATION CONTROL */}
@@ -807,9 +716,9 @@ export default function DriverDashboard() {
                       <MaterialCommunityIcons name="satellite-uplink" size={20} color="#10B981" />
                     </Animated.View>
                     <View>
-                      <Text style={styles.gpsPanelTitle}>GPS & POSTGIS LIVE TRACKER</Text>
+                      <Text style={styles.gpsPanelTitle}>ĐỒNG BỘ GPS POSTGIS</Text>
                       <Text style={styles.gpsPanelSubTitle}>
-                        API: PATCH /driver-resource/location
+                        PATCH /driver-resource/location
                       </Text>
                     </View>
                   </View>
@@ -825,7 +734,7 @@ export default function DriverDashboard() {
                     ) : (
                       <>
                         <Feather name="upload-cloud" size={14} color="#022C22" />
-                        <Text style={styles.syncNowText}>CẬP NHẬT NGAY</Text>
+                        <Text style={styles.syncNowText}>CẬP NHẬT</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -845,16 +754,8 @@ export default function DriverDashboard() {
 
                 <View style={styles.coordsSubGrid}>
                   <View style={styles.subCoordItem}>
-                    <Ionicons name="speedometer-outline" size={14} color="#94A3B8" />
-                    <Text style={styles.subCoordText}>Vận tốc: {currentCoords.speed.toFixed(1)} km/h</Text>
-                  </View>
-                  <View style={styles.subCoordItem}>
-                    <MaterialCommunityIcons name="compass-outline" size={14} color="#94A3B8" />
-                    <Text style={styles.subCoordText}>Hướng: {currentCoords.heading.toFixed(0)}°</Text>
-                  </View>
-                  <View style={styles.subCoordItem}>
                     <Ionicons name="time-outline" size={14} color="#94A3B8" />
-                    <Text style={styles.subCoordText}>Gần nhất: {lastSyncTime}</Text>
+                    <Text style={styles.subCoordText}>Đồng bộ gần nhất: {lastSyncTime}</Text>
                   </View>
                 </View>
 
@@ -863,7 +764,7 @@ export default function DriverDashboard() {
                   <View style={styles.autoSyncInfo}>
                     <Text style={styles.autoSyncTitle}>Tự động đồng bộ GPS mỗi 15 giây</Text>
                     <Text style={styles.autoSyncDesc}>
-                      Liên tục cập nhật tọa độ thời gian thực về điều phối viên và người dân
+                      Gửi tọa độ PostGIS thời gian thực lên máy chủ backend
                     </Text>
                   </View>
                   <Switch
@@ -879,18 +780,12 @@ export default function DriverDashboard() {
               <View style={styles.mapPreviewCard}>
                 <View style={styles.mapPreviewHeader}>
                   <MaterialCommunityIcons name="map-marker-radius" size={16} color="#10B981" />
-                  <Text style={styles.mapPreviewTitle}>VỊ TRÍ HIỆN TẠI TRÊN BẢN ĐỒ</Text>
-                  <TouchableOpacity
-                    style={styles.openNavDirectBtn}
-                    onPress={() => handleSimulateIncomingOrder()}
-                  >
-                    <Text style={styles.openNavDirectText}>THỬ NGHIỆM ĐIỀU HƯỚNG</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.mapPreviewTitle}>VỊ TRÍ XE CỨU THƯƠNG HIỆN TẠI</Text>
                 </View>
 
                 <View style={styles.mapFrame}>
                   <AmbulanceMap
-                    victimLocation={mapDummyVictim}
+                    victimLocation={mapAmbulanceLocation}
                     ambulanceLocation={mapAmbulanceLocation}
                   />
                   <View style={styles.mapOverlayPill}>
@@ -902,17 +797,23 @@ export default function DriverDashboard() {
                 </View>
               </View>
 
-              {/* QUICK ACTION BUTTONS */}
-              <View style={styles.quickActionsContainer}>
-                <TouchableOpacity
-                  style={[styles.quickActionBtn, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: 'rgba(239, 68, 68, 0.3)' }]}
-                  onPress={handleSimulateIncomingOrder}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons name="alarm-light" size={22} color="#EF4444" />
-                  <Text style={[styles.quickActionText, { color: '#F87171' }]}>MÔ PHỎNG CA CẤP CỨU</Text>
-                </TouchableOpacity>
+              {/* DEV / SIMULATION ONLY */}
+              {__DEV__ && (
+                <View style={styles.devSection}>
+                  <Text style={styles.devSectionTitle}>DÀNH CHO PHÁT TRIỂN (DEVELOPMENT)</Text>
+                  <TouchableOpacity
+                    style={styles.simulateOrderBtn}
+                    onPress={handleSimulateIncomingOrder}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="alarm-light" size={18} color="#F87171" />
+                    <Text style={styles.simulateOrderText}>MÔ PHỎNG CA CẤP CỨU (MOCK DISPATCH)</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
+              {/* QUICK ACTION BUTTON */}
+              <View style={styles.quickActionsContainer}>
                 <TouchableOpacity
                   style={[styles.quickActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.3)' }]}
                   onPress={handleCallDispatcher}
@@ -925,7 +826,7 @@ export default function DriverDashboard() {
             </ScrollView>
           )}
 
-          {/* TAB 2: MISSIONS HISTORY (GET /dispatch-missions/me) */}
+          {/* TAB 2: MISSIONS HISTORY (GET /dispatch-missions/me) - EXACT BE FIELDS */}
           {activeTab === 'missions' && (
             <FlatList
               data={missionsList}
@@ -938,180 +839,195 @@ export default function DriverDashboard() {
                   tintColor="#10B981"
                 />
               }
-              renderItem={({ item }) => (
-                <View style={styles.missionCard}>
-                  <View style={styles.missionCardHeader}>
-                    <View style={styles.missionIdTag}>
-                      <Text style={styles.missionIdTagText}>#{item.id}</Text>
+              renderItem={({ item }) => {
+                const missionTime = item.dispatchedAt || item.acceptedAt || item.enRouteAt || item.completedAt;
+                const formattedTime = missionTime && !Number.isNaN(new Date(missionTime).getTime())
+                  ? new Date(missionTime).toLocaleString('vi-VN')
+                  : 'Chưa có thời gian';
+
+                return (
+                  <View style={styles.missionCard}>
+                    <View style={styles.missionCardHeader}>
+                      <View style={styles.missionIdTag}>
+                        <Text style={styles.missionIdTagText}>Nhiệm vụ #{item.id}</Text>
+                      </View>
+                      <View style={[styles.missionStatusBadge, getMissionStatusBadgeStyle(item.status)]}>
+                        <Text style={styles.missionStatusBadgeText}>{getMissionStatusText(item.status)}</Text>
+                      </View>
                     </View>
-                    <View style={[styles.missionStatusBadge, getMissionStatusBadgeStyle(item.status)]}>
-                      <Text style={styles.missionStatusBadgeText}>{getMissionStatusText(item.status)}</Text>
-                    </View>
-                  </View>
 
-                  <Text style={styles.missionVictimName}>{item.victimName || item.patientName || 'Nạn nhân'}</Text>
-                  <Text style={styles.missionAddress} numberOfLines={2}>
-                    <Ionicons name="location-outline" size={13} color="#94A3B8" /> {item.victimAddress || item.pickupAddress || 'Chưa có địa chỉ'}
-                  </Text>
-
-                  {item.injury ? (
-                    <Text style={styles.missionInjuryText} numberOfLines={1}>
-                      <MaterialCommunityIcons name="medical-bag" size={12} color="#F59E0B" /> {item.injury}
+                    <Text style={styles.missionReqIdText}>
+                      Yêu cầu điều phối #{item.requestId} • Xe #{item.resourceId}
                     </Text>
-                  ) : null}
 
-                  <View style={styles.missionMetaRow}>
-                    <Text style={styles.missionMetaItem}>
-                      <Ionicons name="time-outline" size={12} color="#64748B" />{' '}
-                      {new Date(item.createdAt).toLocaleDateString('vi-VN')} {new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                    <Text style={styles.missionAddress} numberOfLines={2}>
+                      <Ionicons name="location-outline" size={13} color="#94A3B8" />{' '}
+                      {item.destinationName || 'Chưa xác định điểm đến'}
                     </Text>
-                    {item.distanceKm ? (
-                      <Text style={[styles.missionMetaItem, { color: '#34D399', fontWeight: '800' }]}>
-                        {item.distanceKm} km
+
+                    {item.notes ? (
+                      <Text style={styles.missionInjuryText} numberOfLines={2}>
+                        <MaterialCommunityIcons name="clipboard-text-outline" size={12} color="#F59E0B" /> {item.notes}
                       </Text>
                     ) : null}
-                  </View>
 
-                  <View style={styles.missionCardActions}>
-                    <TouchableOpacity
-                      style={styles.viewDetailMissionBtn}
-                      onPress={() => handleOpenMissionDetail(item)}
-                    >
-                      <Ionicons name="document-text-outline" size={14} color="#38BDF8" />
-                      <Text style={styles.viewDetailMissionBtnText}>XEM CHI TIẾT CA</Text>
-                    </TouchableOpacity>
+                    <View style={styles.missionMetaRow}>
+                      <Text style={styles.missionMetaItem}>
+                        <Ionicons name="time-outline" size={12} color="#64748B" /> {formattedTime}
+                      </Text>
+                    </View>
 
-                    {(item.status === 'ASSIGNED' || item.status === 'ACCEPTED' || item.status === 'STARTED' || item.status === 'EN_ROUTE_TO_SCENE') && (
+                    <View style={styles.missionCardActions}>
                       <TouchableOpacity
-                        style={styles.resumeMissionBtn}
-                        onPress={() => {
-                          router.push({
-                            pathname: '/(driver)/navigation',
-                            params: {
-                              missionId: String(item.id),
-                              dispatchMissionId: String(item.id),
-                              victimName: item.victimName || item.patientName,
-                              victimPhone: item.victimPhone || item.patientPhone,
-                              victimAddress: item.victimAddress || item.pickupAddress,
-                              victimInjury: item.injury || item.description,
-                            },
-                          });
-                        }}
+                        style={styles.viewDetailMissionBtn}
+                        onPress={() => handleOpenMissionDetail(item)}
                       >
-                        <FontAwesome5 name="navigation" size={12} color="#022C22" />
-                        <Text style={styles.resumeMissionBtnText}>ĐIỀU HƯỚNG</Text>
+                        <Ionicons name="document-text-outline" size={14} color="#38BDF8" />
+                        <Text style={styles.viewDetailMissionBtnText}>XEM CHI TIẾT</Text>
                       </TouchableOpacity>
-                    )}
+
+                      {['DISPATCHED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL'].includes(item.status) && (
+                        <TouchableOpacity
+                          style={styles.resumeMissionBtn}
+                          onPress={() => {
+                            router.push({
+                              pathname: '/(driver)/navigation',
+                              params: {
+                                missionId: String(item.id),
+                                dispatchMissionId: String(item.id),
+                                requestId: String(item.requestId || ''),
+                                destinationName: item.destinationName || '',
+                              },
+                            });
+                          }}
+                        >
+                          <FontAwesome5 name="navigation" size={12} color="#022C22" />
+                          <Text style={styles.resumeMissionBtnText}>ĐIỀU HƯỚNG</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
-                </View>
-              )}
+                );
+              }}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <MaterialCommunityIcons name="clipboard-text-off-outline" size={48} color="#334155" />
                   <Text style={styles.emptyTitle}>Chưa có nhiệm vụ nào</Text>
                   <Text style={styles.emptySubtitle}>
-                    Các ca cấp cứu được phân công sẽ xuất hiện tại đây sau khi tổng đài điều phối.
+                    Các nhiệm vụ được điều phối từ hệ thống sẽ xuất hiện tại đây.
                   </Text>
                 </View>
               }
             />
           )}
 
-          {/* TAB 3: VEHICLE & MEDICAL EQUIPMENT DETAILS */}
+          {/* TAB 3: VEHICLE & RESOURCE SPECS (GET /driver-resource) */}
           {activeTab === 'vehicle' && (
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
               <View style={styles.specCard}>
                 <View style={styles.specHeaderRow}>
                   <MaterialCommunityIcons name="car-info" size={18} color="#10B981" />
-                  <Text style={styles.specSectionTitle}>CHI TIẾT XE CẤP CỨU (GET /driver-resource)</Text>
+                  <Text style={styles.specSectionTitle}>CHI TIẾT XE CỨU THƯƠNG (GET /driver-resource)</Text>
                 </View>
 
-                <View style={styles.specGrid}>
-                  <View style={styles.specHalfRow}>
-                    <View style={styles.specBlock}>
-                      <Text style={styles.specLabel}>MÃ ĐỊNH DANH (ID)</Text>
-                      <Text style={styles.specValueHighlight}>#{driverResource?.id || '1042'}</Text>
-                    </View>
-                    <View style={styles.specBlock}>
-                      <Text style={styles.specLabel}>BIỂN KIỂM SOÁT</Text>
-                      <Text style={[styles.specValueHighlight, { color: '#34D399' }]}>{licensePlate}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.specDivider} />
-
-                  <View style={styles.specFullRow}>
-                    <Text style={styles.specLabel}>LOẠI XE CỨU THƯƠNG</Text>
-                    <Text style={styles.specValueBold}>{vehicleTypeStr}</Text>
-                  </View>
-
-                  <View style={styles.specDivider} />
-
-                  <View style={styles.specFullRow}>
-                    <Text style={styles.specLabel}>ĐƠN VỊ QUẢN LÝ / BỆNH VIỆN</Text>
-                    <Text style={styles.specValueBold}>{providerTitle}</Text>
-                  </View>
-
-                  <View style={styles.specDivider} />
-
-                  <View style={styles.specHalfRow}>
-                    <View style={styles.specBlock}>
-                      <Text style={styles.specLabel}>TÀI XẾ PHỤ TRÁCH</Text>
-                      <Text style={styles.specValueBold}>{driverName}</Text>
-                    </View>
-                    <View style={styles.specBlock}>
-                      <Text style={styles.specLabel}>SỐ ĐIỆN THOẠI</Text>
-                      <Text style={[styles.specValueBold, { color: '#38BDF8' }]}>{driverPhone}</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Equipment Checklist */}
-              <View style={styles.equipmentCard}>
-                <View style={styles.equipmentHeader}>
-                  <FontAwesome5 name="briefcase-medical" size={16} color="#10B981" />
-                  <Text style={styles.equipmentTitle}>DANH MỤC TRANG THIẾT BỊ Y TẾ TRÊN XE</Text>
-                </View>
-
-                <View style={styles.equipmentList}>
-                  {equipmentList.map((item, idx) => (
-                    <View key={idx} style={styles.equipmentItem}>
-                      <View style={styles.checkCircle}>
-                        <Ionicons name="checkmark" size={12} color="#10B981" />
+                {driverResource ? (
+                  <View style={styles.specGrid}>
+                    <View style={styles.specHalfRow}>
+                      <View style={styles.specBlock}>
+                        <Text style={styles.specLabel}>MÃ XE (RESOURCE ID)</Text>
+                        <Text style={styles.specValueHighlight}>#{driverResource.id}</Text>
                       </View>
-                      <Text style={styles.equipmentText}>{item}</Text>
+                      <View style={styles.specBlock}>
+                        <Text style={styles.specLabel}>MÃ ĐỊNH DANH (CODE)</Text>
+                        <Text style={styles.specValueHighlight}>{driverResource.resourceCode || 'Chưa có'}</Text>
+                      </View>
                     </View>
-                  ))}
-                </View>
+
+                    <View style={styles.specDivider} />
+
+                    <View style={styles.specHalfRow}>
+                      <View style={styles.specBlock}>
+                        <Text style={styles.specLabel}>BIỂN KIỂM SOÁT</Text>
+                        <Text style={[styles.specValueHighlight, { color: '#34D399' }]}>{licensePlate}</Text>
+                      </View>
+                      <View style={styles.specBlock}>
+                        <Text style={styles.specLabel}>TRẠNG THÁI TRỰC</Text>
+                        <Text style={[styles.specValueHighlight, { color: '#38BDF8' }]}>{driverResource.status || 'Chưa có'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.specDivider} />
+
+                    <View style={styles.specFullRow}>
+                      <Text style={styles.specLabel}>LOẠI PHƯƠNG TIỆN (RESOURCE TYPE)</Text>
+                      <Text style={styles.specValueBold}>{driverResource.resourceType || 'Chưa có thông tin'}</Text>
+                    </View>
+
+                    <View style={styles.specDivider} />
+
+                    <View style={styles.specFullRow}>
+                      <Text style={styles.specLabel}>TÀI XẾ PHỤ TRÁCH</Text>
+                      <Text style={styles.specValueBold}>{driverResource.driverName || 'Chưa gán tài xế'}</Text>
+                    </View>
+
+                    <View style={styles.specDivider} />
+
+                    <View style={styles.specFullRow}>
+                      <Text style={styles.specLabel}>CẬP NHẬT LẦN CUỐI</Text>
+                      <Text style={styles.specValueNormal}>
+                        {driverResource.updatedAt && !Number.isNaN(new Date(driverResource.updatedAt).getTime())
+                          ? new Date(driverResource.updatedAt).toLocaleString('vi-VN')
+                          : 'Chưa có dữ liệu thời gian'}
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.noDataBox}>
+                    <Text style={styles.noDataText}>Chưa có dữ liệu từ hệ thống máy chủ</Text>
+                  </View>
+                )}
               </View>
             </ScrollView>
           )}
 
-          {/* TAB 4: GPS SYNC LOGS */}
+          {/* TAB 4: CURRENT SESSION GPS SYNC LOGS */}
           {activeTab === 'logs' && (
-            <FlatList
-              data={gpsLogs}
-              keyExtractor={item => item.id}
-              contentContainerStyle={styles.logsListContent}
-              renderItem={({ item }) => (
-                <View style={styles.logCard}>
-                  <View style={styles.logHeaderRow}>
-                    <View style={styles.logTimeTag}>
-                      <Ionicons name="time-outline" size={11} color="#94A3B8" />
-                      <Text style={styles.logTimeText}>{item.time}</Text>
+            <View style={{ flex: 1 }}>
+              <View style={styles.logsSessionNotice}>
+                <Ionicons name="information-circle-outline" size={14} color="#94A3B8" />
+                <Text style={styles.logsSessionNoticeText}>
+                  Nhật ký đồng bộ phiên hiện tại (Lưu cục bộ, không phải lịch sử máy chủ)
+                </Text>
+              </View>
+              <FlatList
+                data={gpsLogs}
+                keyExtractor={item => item.id}
+                contentContainerStyle={styles.logsListContent}
+                renderItem={({ item }) => (
+                  <View style={styles.logCard}>
+                    <View style={styles.logHeaderRow}>
+                      <View style={styles.logTimeTag}>
+                        <Ionicons name="time-outline" size={11} color="#94A3B8" />
+                        <Text style={styles.logTimeText}>{item.time}</Text>
+                      </View>
+                      <View style={[styles.logSourceBadge, { backgroundColor: item.source === 'MANUAL' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}>
+                        <Text style={[styles.logSourceText, { color: item.source === 'MANUAL' ? '#38BDF8' : '#34D399' }]}>
+                          {item.source}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={[styles.logSourceBadge, { backgroundColor: item.source === 'MANUAL' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}>
-                      <Text style={[styles.logSourceText, { color: item.source === 'MANUAL' ? '#38BDF8' : '#34D399' }]}>
-                        {item.source}
-                      </Text>
-                    </View>
+                    <Text style={styles.logCoordsText}>{item.coords}</Text>
+                    <Text style={styles.logStatusText}>{item.status}</Text>
                   </View>
-                  <Text style={styles.logCoordsText}>{item.coords}</Text>
-                  <Text style={styles.logStatusText}>{item.status}</Text>
-                </View>
-              )}
-            />
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <MaterialCommunityIcons name="satellite-uplink" size={40} color="#334155" />
+                    <Text style={styles.emptySubtitle}>Chưa có lượt đồng bộ nào trong phiên này.</Text>
+                  </View>
+                }
+              />
+            </View>
           )}
 
           {/* MODAL: MISSION DETAIL (GET /dispatch-missions/me/{missionId}) */}
@@ -1125,8 +1041,8 @@ export default function DriverDashboard() {
               <View style={styles.modalContainer}>
                 <View style={styles.modalHeader}>
                   <View>
-                    <Text style={styles.modalTitle}>CHI TIẾT NHIỆM VỤ CẤP CỨU</Text>
-                    <Text style={styles.modalSubtitle}>Mã ca: #{selectedDetailMission?.id}</Text>
+                    <Text style={styles.modalTitle}>CHI TIẾT NHIỆM VỤ</Text>
+                    <Text style={styles.modalSubtitle}>Nhiệm vụ #{selectedDetailMission?.id} • Yêu cầu #{selectedDetailMission?.requestId}</Text>
                   </View>
                   <TouchableOpacity
                     style={styles.modalCloseBtn}
@@ -1139,7 +1055,7 @@ export default function DriverDashboard() {
                 {loadingDetail ? (
                   <View style={styles.modalLoadingBox}>
                     <ActivityIndicator size="large" color="#10B981" />
-                    <Text style={styles.modalLoadingText}>Đang tải dữ liệu nhiệm vụ...</Text>
+                    <Text style={styles.modalLoadingText}>Đang tải dữ liệu từ máy chủ...</Text>
                   </View>
                 ) : (
                   <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
@@ -1148,51 +1064,34 @@ export default function DriverDashboard() {
                       <Text style={styles.modalStatusText}>{getMissionStatusText(selectedDetailMission?.status)}</Text>
                     </View>
 
-                    {/* Patient Card */}
+                    {/* Destination Card */}
                     <View style={styles.modalSectionCard}>
-                      <Text style={styles.modalSectionTitle}>THÔNG TIN NẠN NHÂN</Text>
+                      <Text style={styles.modalSectionTitle}>ĐIỂM ĐẾN / YÊU CẦU</Text>
                       <View style={styles.modalInfoRow}>
-                        <Text style={styles.modalInfoLabel}>Họ tên:</Text>
-                        <Text style={styles.modalInfoVal}>{selectedDetailMission?.victimName || selectedDetailMission?.patientName || 'Nạn nhân'}</Text>
+                        <Text style={styles.modalInfoLabel}>Điểm đến:</Text>
+                        <Text style={styles.modalInfoVal}>{selectedDetailMission?.destinationName || 'Chưa xác định'}</Text>
                       </View>
-                      <View style={styles.modalInfoRow}>
-                        <Text style={styles.modalInfoLabel}>Số điện thoại:</Text>
-                        <Text style={[styles.modalInfoVal, { color: '#38BDF8' }]}>{selectedDetailMission?.victimPhone || selectedDetailMission?.patientPhone || '0987.654.321'}</Text>
-                      </View>
-                      <View style={styles.modalInfoRow}>
-                        <Text style={styles.modalInfoLabel}>Địa chỉ đón:</Text>
-                        <Text style={styles.modalInfoVal}>{selectedDetailMission?.victimAddress || selectedDetailMission?.pickupAddress || 'Hà Nội'}</Text>
-                      </View>
-                      {selectedDetailMission?.injury ? (
+                      {selectedDetailMission?.notes ? (
                         <View style={styles.modalInfoRow}>
-                          <Text style={styles.modalInfoLabel}>Tình trạng sự cố:</Text>
-                          <Text style={[styles.modalInfoVal, { color: '#F59E0B' }]}>{selectedDetailMission.injury}</Text>
+                          <Text style={styles.modalInfoLabel}>Ghi chú:</Text>
+                          <Text style={[styles.modalInfoVal, { color: '#F59E0B' }]}>{selectedDetailMission.notes}</Text>
                         </View>
                       ) : null}
                     </View>
 
-                    {/* Hospital Card */}
-                    <View style={styles.modalSectionCard}>
-                      <Text style={styles.modalSectionTitle}>BỆNH VIỆN TIẾP NHẬN</Text>
-                      <View style={styles.modalInfoRow}>
-                        <Text style={styles.modalInfoLabel}>Bệnh viện:</Text>
-                        <Text style={styles.modalInfoVal}>{selectedDetailMission?.hospitalName || 'Bệnh viện Cấp Cứu 115'}</Text>
-                      </View>
-                      <View style={styles.modalInfoRow}>
-                        <Text style={styles.modalInfoLabel}>Địa chỉ BV:</Text>
-                        <Text style={styles.modalInfoVal}>{selectedDetailMission?.hospitalAddress || 'Số 1 Chùa Bộc, Đống Đa, Hà Nội'}</Text>
-                      </View>
-                    </View>
-
                     {/* Timeline */}
                     <View style={styles.modalSectionCard}>
-                      <Text style={styles.modalSectionTitle}>TIẾN TRÌNH THỜI GIAN</Text>
-                      <TimelineRow label="Tiếp nhận ca:" time={selectedDetailMission?.createdAt} />
-                      <TimelineRow label="Bắt đầu di chuyển:" time={selectedDetailMission?.startTime} />
-                      <TimelineRow label="Đã đến hiện trường:" time={selectedDetailMission?.arrivedSceneTime} />
-                      <TimelineRow label="Bắt đầu chuyển viện:" time={selectedDetailMission?.startTransportTime} />
-                      <TimelineRow label="Đã đến bệnh viện:" time={selectedDetailMission?.arrivedHospitalTime} />
-                      <TimelineRow label="Hoàn tất ca:" time={selectedDetailMission?.completedTime} />
+                      <Text style={styles.modalSectionTitle}>TIẾN TRÌNH THỜI GIAN (BACKEND DTO)</Text>
+                      <TimelineRow label="Điều phối (Dispatched):" time={selectedDetailMission?.dispatchedAt} />
+                      <TimelineRow label="Chấp nhận (Accepted):" time={selectedDetailMission?.acceptedAt} />
+                      <TimelineRow label="Đang di chuyển (En Route):" time={selectedDetailMission?.enRouteAt} />
+                      <TimelineRow label="Đến hiện trường (Arrived Scene):" time={selectedDetailMission?.arrivedSceneAt} />
+                      <TimelineRow label="Vận chuyển (Start Transport):" time={selectedDetailMission?.startTransportAt} />
+                      <TimelineRow label="Đến bệnh viện (Arrived Hospital):" time={selectedDetailMission?.arrivedHospitalAt} />
+                      <TimelineRow label="Hoàn thành (Completed):" time={selectedDetailMission?.completedAt} />
+                      {selectedDetailMission?.cancelledAt ? (
+                        <TimelineRow label="Đã hủy (Cancelled):" time={selectedDetailMission?.cancelledAt} />
+                      ) : null}
                     </View>
                   </ScrollView>
                 )}
@@ -1207,36 +1106,23 @@ export default function DriverDashboard() {
             <View style={styles.incomingHeader}>
               <View style={styles.emergencyBadge}>
                 <MaterialCommunityIcons name="alarm-light" size={16} color="#FFF" />
-                <Text style={styles.emergencyBadgeText}>YÊU CẦU CẤP CỨU MỚI</Text>
+                <Text style={styles.emergencyBadgeText}>NHIỆM VỤ ĐIỀU PHỐI MỚI (DISPATCHED)</Text>
               </View>
-              <Text style={styles.incomingId}>#{activeMission?.id || 'DM-101'}</Text>
+              <Text style={styles.incomingId}>#{activeMission?.id}</Text>
             </View>
 
             <View style={styles.patientBox}>
-              <Text style={styles.incomingVictimName}>{activeMission?.victimName || 'Nguyễn Văn Nam (48 tuổi)'}</Text>
+              <Text style={styles.incomingVictimName}>Yêu cầu điều phối #{activeMission?.requestId}</Text>
               <Text style={styles.incomingAddress}>
                 <Ionicons name="location-sharp" size={14} color="#EF4444" />{' '}
-                {activeMission?.victimAddress || activeMission?.pickupAddress || '12 Chùa Bộc, Đống Đa, Hà Nội'}
+                {activeMission?.destinationName || 'Chưa xác định điểm đến'}
               </Text>
-              <Text style={styles.incomingInjury}>
-                <MaterialCommunityIcons name="medical-bag" size={14} color="#F59E0B" />{' '}
-                {activeMission?.victimInjury || activeMission?.injury || 'Chấn thương gãy chân'}
-              </Text>
-            </View>
-
-            <View style={styles.incomingMetricsRow}>
-              <View style={styles.incMetricBox}>
-                <Text style={styles.incMetricLabel}>KHOẢNG CÁCH</Text>
-                <Text style={styles.incMetricVal}>{activeMission?.distanceKm || '1.2'} km</Text>
-              </View>
-              <View style={styles.incMetricBox}>
-                <Text style={styles.incMetricLabel}>DỰ KIẾN (ETA)</Text>
-                <Text style={[styles.incMetricVal, { color: '#34D399' }]}>{activeMission?.estimatedEtaMin || '4'} phút</Text>
-              </View>
-              <View style={styles.incMetricBox}>
-                <Text style={styles.incMetricLabel}>ĐỘ ƯU TIÊN</Text>
-                <Text style={[styles.incMetricVal, { color: '#F87171' }]}>KHẨN CẤP</Text>
-              </View>
+              {activeMission?.notes ? (
+                <Text style={styles.incomingInjury}>
+                  <MaterialCommunityIcons name="clipboard-text-outline" size={14} color="#F59E0B" />{' '}
+                  {activeMission.notes}
+                </Text>
+              ) : null}
             </View>
 
             {/* Action Buttons */}
@@ -1271,26 +1157,25 @@ export default function DriverDashboard() {
   );
 }
 
-const TimelineRow = ({ label, time }: { label: string; time?: string }) => (
+const TimelineRow = ({ label, time }: { label: string; time?: string | null }) => (
   <View style={styles.timelineRow}>
     <Text style={styles.timelineLabel}>{label}</Text>
     <Text style={[styles.timelineTime, !time && { color: '#64748B' }]}>
-      {time ? new Date(time).toLocaleTimeString('vi-VN') : '---'}
+      {time && !Number.isNaN(new Date(time).getTime())
+        ? new Date(time).toLocaleTimeString('vi-VN')
+        : '---'}
     </Text>
   </View>
 );
 
 const getMissionStatusBadgeStyle = (status?: string) => {
   switch ((status || '').toUpperCase()) {
-    case 'ASSIGNED':
-    case 'PENDING':
+    case 'DISPATCHED':
       return { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)' };
     case 'ACCEPTED':
-    case 'STARTED':
-    case 'EN_ROUTE_TO_SCENE':
+    case 'EN_ROUTE':
       return { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.3)' };
     case 'ARRIVED_SCENE':
-    case 'START_TRANSPORT':
     case 'TRANSPORTING':
       return { backgroundColor: 'rgba(167, 139, 250, 0.15)', borderColor: 'rgba(167, 139, 250, 0.3)' };
     case 'ARRIVED_HOSPITAL':
@@ -1298,6 +1183,8 @@ const getMissionStatusBadgeStyle = (status?: string) => {
       return { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)' };
     case 'REJECTED':
     case 'CANCELLED':
+    case 'FAILED':
+    case 'TIMEOUT':
       return { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' };
     default:
       return { backgroundColor: 'rgba(148, 163, 184, 0.15)', borderColor: 'rgba(148, 163, 184, 0.3)' };
@@ -1306,25 +1193,30 @@ const getMissionStatusBadgeStyle = (status?: string) => {
 
 const getMissionStatusText = (status?: string) => {
   switch ((status || '').toUpperCase()) {
-    case 'ASSIGNED':
-    case 'PENDING':
-      return 'ĐANG CHỜ TÀI XẾ';
+    case 'CREATED':
+      return 'MỚI TẠO';
+    case 'DISPATCHED':
+      return 'ĐÃ ĐIỀU PHỐI (CHỜ NHẬN)';
     case 'ACCEPTED':
       return 'ĐÃ CHẤP NHẬN';
-    case 'STARTED':
-    case 'EN_ROUTE_TO_SCENE':
-      return 'ĐANG ĐẾN HIỆN TRƯỜNG';
+    case 'EN_ROUTE':
+      return 'ĐANG DI CHUYỂN';
     case 'ARRIVED_SCENE':
       return 'ĐÃ ĐẾN HIỆN TRƯỜNG';
-    case 'START_TRANSPORT':
     case 'TRANSPORTING':
-      return 'ĐANG CHUYỂN VIỆN';
+      return 'ĐANG VẬN CHUYỂN';
     case 'ARRIVED_HOSPITAL':
       return 'ĐÃ ĐẾN BỆNH VIỆN';
     case 'COMPLETED':
       return 'HOÀN THÀNH';
     case 'REJECTED':
       return 'ĐÃ TỪ CHỐI';
+    case 'CANCELLED':
+      return 'ĐÃ HỦY';
+    case 'FAILED':
+      return 'THẤT BẠI';
+    case 'TIMEOUT':
+      return 'HẾT THỜI GIAN';
     default:
       return status || 'ĐANG XỬ LÝ';
   }
@@ -1441,7 +1333,7 @@ const styles = StyleSheet.create({
   },
   runningBannerTitle: {
     color: '#F87171',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   runningBannerSubtitle: {
@@ -1507,6 +1399,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 16,
     borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   statusLeft: {
     flexDirection: 'row',
@@ -1532,6 +1425,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     marginTop: 2,
   },
+  statusNote: {
+    color: '#64748B',
+    fontSize: 8,
+    marginTop: 2,
+  },
   resourceSummaryCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: 16,
@@ -1542,7 +1440,6 @@ const styles = StyleSheet.create({
   resourceHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
   },
   resourceIconCircle: {
     width: 36,
@@ -1570,7 +1467,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 6,
@@ -1579,40 +1475,24 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#10B981',
   },
   liveTagText: {
-    color: '#34D399',
     fontSize: 8,
     fontWeight: '800',
   },
-  metricsRow: {
+  errorBox: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 6,
+    marginTop: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    padding: 8,
+    borderRadius: 8,
   },
-  metricItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  metricValue: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  metricLabel: {
-    color: '#64748B',
-    fontSize: 9,
-    marginTop: 2,
-  },
-  metricDivider: {
-    width: 1,
-    height: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  errorText: {
+    color: '#F87171',
+    fontSize: 10,
+    fontWeight: '600',
   },
   gpsSyncPanel: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
@@ -1739,17 +1619,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     flex: 1,
   },
-  openNavDirectBtn: {
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  openNavDirectText: {
-    color: '#38BDF8',
-    fontSize: 9,
-    fontWeight: '800',
-  },
   mapFrame: {
     height: 160,
     borderRadius: 12,
@@ -1780,9 +1649,36 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
+  devSection: {
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
+    padding: 12,
+    borderRadius: 14,
+    gap: 8,
+  },
+  devSectionTitle: {
+    color: '#F87171',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  simulateOrderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  simulateOrderText: {
+    color: '#F87171',
+    fontSize: 10,
+    fontWeight: '900',
+  },
   quickActionsContainer: {
     flexDirection: 'row',
-    gap: 10,
   },
   quickActionBtn: {
     flex: 1,
@@ -1815,7 +1711,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   missionIdTag: {
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
@@ -1839,35 +1735,35 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '900',
   },
-  missionVictimName: {
-    color: '#F8FAFC',
-    fontSize: 14,
+  missionReqIdText: {
+    color: '#38BDF8',
+    fontSize: 11,
     fontWeight: '800',
     marginBottom: 4,
   },
   missionAddress: {
     color: '#CBD5E1',
-    fontSize: 11,
+    fontSize: 12,
     lineHeight: 16,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   missionInjuryText: {
     color: '#F59E0B',
-    fontSize: 10,
-    fontWeight: '700',
-    marginBottom: 8,
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 6,
   },
   missionMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
   missionMetaItem: {
     color: '#94A3B8',
-    fontSize: 11,
+    fontSize: 10,
   },
   missionCardActions: {
     flexDirection: 'row',
@@ -1975,51 +1871,37 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 18,
   },
+  specValueNormal: {
+    color: '#CBD5E1',
+    fontSize: 12,
+    lineHeight: 16,
+  },
   specValueHighlight: {
     color: '#F8FAFC',
     fontSize: 15,
     fontWeight: '900',
   },
-  equipmentCard: {
-    backgroundColor: 'rgba(30, 41, 59, 0.45)',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  equipmentHeader: {
-    flexDirection: 'row',
+  noDataBox: {
+    paddingVertical: 20,
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
   },
-  equipmentTitle: {
-    color: '#F8FAFC',
+  noDataText: {
+    color: '#64748B',
     fontSize: 11,
-    fontWeight: '900',
-  },
-  equipmentList: {
-    gap: 8,
-  },
-  equipmentItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  checkCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  equipmentText: {
-    color: '#CBD5E1',
-    fontSize: 11,
-    flex: 1,
   },
   // Tab 4: Logs Styles
+  logsSessionNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+  },
+  logsSessionNoticeText: {
+    color: '#94A3B8',
+    fontSize: 10,
+  },
   logsListContent: {
     padding: 16,
     paddingBottom: 40,
@@ -2227,13 +2109,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(30, 41, 59, 0.5)',
     borderRadius: 14,
     padding: 12,
-    marginBottom: 12,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   incomingVictimName: {
     color: '#F8FAFC',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     marginBottom: 4,
   },
@@ -2246,32 +2128,7 @@ const styles = StyleSheet.create({
   incomingInjury: {
     color: '#F59E0B',
     fontSize: 11,
-    fontWeight: '700',
-  },
-  incomingMetricsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 16,
-  },
-  incMetricBox: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.8)',
-    padding: 8,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  incMetricLabel: {
-    color: '#64748B',
-    fontSize: 8,
-    fontWeight: '800',
-  },
-  incMetricVal: {
-    color: '#F8FAFC',
-    fontSize: 12,
-    fontWeight: '900',
-    marginTop: 2,
+    fontWeight: '600',
   },
   sheetBtnRow: {
     flexDirection: 'row',

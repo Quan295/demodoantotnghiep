@@ -17,13 +17,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
 import {
-  AmbulanceSimulation,
-  AmbulanceSimulationStatus,
   DispatchMission,
   DispatchMissionStatus,
   DriverResource,
   LatLng,
-  TrackingUpdate,
   getResourceLicensePlate,
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
@@ -32,52 +29,35 @@ export default function NavigationScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // --- Route params ---
-  const missionId = (params.missionId as string) || (params.dispatchMissionId as string) || (params.id as string) || 'DM-101';
-  const initialVictimLat = params.victimLat ? parseFloat(params.victimLat as string) : 21.0091;
-  const initialVictimLng = params.victimLng ? parseFloat(params.victimLng as string) : 105.8247;
-  const initialVictimName = (params.victimName as string) || 'Nguyễn Văn Nam';
-  const initialVictimPhone = (params.victimPhone as string) || '0987.654.321';
-  const initialVictimAddress = (params.victimAddress as string) || '12 Chùa Bộc, Đống Đa, Hà Nội';
-  const initialVictimInjury = (params.victimInjury as string) || 'Tai nạn giao thông - Gãy xương cẳng chân';
+  // Route params from caller
+  const missionId = (params.missionId as string) || (params.dispatchMissionId as string) || (params.id as string);
+  const requestId = (params.requestId as string) || '';
+  const initialDestination = (params.destinationName as string) || '';
 
-  // --- Mission & Resource state ---
+  // Mission & Resource state
   const [mission, setMission] = useState<DispatchMission | null>(null);
   const [driverResource, setDriverResource] = useState<DriverResource | null>(null);
+  const [loadingMission, setLoadingMission] = useState<boolean>(true);
   const [loadingAction, setLoadingAction] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Operational State Machine: 'STARTING' -> 'EN_ROUTE_TO_SCENE' -> 'ARRIVED_SCENE' -> 'TRANSPORTING' -> 'ARRIVED_HOSPITAL' -> 'COMPLETED'
-  const [missionPhase, setMissionPhase] = useState<DispatchMissionStatus>('EN_ROUTE_TO_SCENE');
-
-  // --- Simulation & Map state ---
-  const [simulation, setSimulation] = useState<AmbulanceSimulation | null>(null);
-  const [simStatus, setSimStatus] = useState<AmbulanceSimulationStatus>('RUNNING');
+  // Driver GPS coordinates
   const [driverPos, setDriverPos] = useState<LatLng>({
-    lat: initialVictimLat + 0.006,
-    lng: initialVictimLng + 0.005,
+    lat: 21.0091,
+    lng: 105.8247,
   });
 
-  const [distance, setDistance] = useState<number>(1.2);
-  const [eta, setEta] = useState<number>(4);
-  const [progress, setProgress] = useState<number>(10);
-
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const simIdRef = useRef<string | null>(null);
-
-  // Patient & Hospital Info
-  const victimName = mission?.victimName || mission?.patientName || initialVictimName;
-  const victimPhone = mission?.victimPhone || mission?.patientPhone || initialVictimPhone;
-  const victimAddress = mission?.victimAddress || mission?.pickupAddress || initialVictimAddress;
-  const victimInjury = mission?.injury || mission?.description || initialVictimInjury;
-
-  const hospitalName = mission?.hospitalName || 'Bệnh viện Cấp Cứu 115 (Khoa Cấp Cứu)';
-  const hospitalAddress = mission?.hospitalAddress || 'Số 1 Chùa Bộc, Đống Đa, Hà Nội';
-  const hospitalLocation: LatLng = mission?.hospitalLocation || { lat: 21.0075, lng: 105.8285 };
-  const victimLocation: LatLng = { lat: initialVictimLat, lng: initialVictimLng };
-
-  // 1. Fetch Mission Details (GET /dispatch-missions/me/{missionId}) & Resource
+  // Load Mission Details (GET /dispatch-missions/me/{missionId}) & Resource
   const loadMissionDetails = useCallback(async () => {
+    if (!missionId) {
+      setLoadError('Không tìm thấy mã nhiệm vụ');
+      setLoadingMission(false);
+      return;
+    }
+
     try {
+      setLoadingMission(true);
+      setLoadError(null);
       const [resMission, resResource] = await Promise.allSettled([
         api.getMyMission(missionId),
         api.getDriverResource(),
@@ -85,127 +65,92 @@ export default function NavigationScreen() {
 
       if (resMission.status === 'fulfilled' && resMission.value) {
         setMission(resMission.value);
-        const st = (resMission.value.status || '').toUpperCase();
-        if (st === 'ACCEPTED' || st === 'ASSIGNED') setMissionPhase('STARTING');
-        else if (st === 'EN_ROUTE_TO_SCENE' || st === 'STARTED') setMissionPhase('EN_ROUTE_TO_SCENE');
-        else if (st === 'ARRIVED_SCENE') setMissionPhase('ARRIVED_SCENE');
-        else if (st === 'START_TRANSPORT' || st === 'TRANSPORTING') setMissionPhase('TRANSPORTING');
-        else if (st === 'ARRIVED_HOSPITAL') setMissionPhase('ARRIVED_HOSPITAL');
-        else if (st === 'COMPLETED') setMissionPhase('COMPLETED');
+      } else {
+        // Create minimum structure from route params if API doesn't return full object
+        setMission({
+          id: missionId,
+          requestId: requestId || missionId,
+          resourceId: '2',
+          destinationName: initialDestination || 'Điểm đến yêu cầu cấp cứu',
+          status: 'ACCEPTED',
+        });
       }
 
       if (resResource.status === 'fulfilled' && resResource.value) {
         setDriverResource(resResource.value);
+        if (resResource.value.latitude && resResource.value.longitude) {
+          setDriverPos({
+            lat: Number(resResource.value.latitude),
+            lng: Number(resResource.value.longitude),
+          });
+        }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('[DriverNav] Load mission details error:', e);
+      setLoadError('Không thể tải thông tin nhiệm vụ');
+    } finally {
+      setLoadingMission(false);
     }
-  }, [missionId]);
+  }, [initialDestination, missionId, requestId]);
 
-  // 2. Initialize Navigation, Simulation, and GPS Polling
   useEffect(() => {
-    let cancelled = false;
     loadMissionDetails();
+  }, [loadMissionDetails]);
 
-    const initSimulation = async () => {
-      try {
-        const startLoc: LatLng = {
-          lat: initialVictimLat + 0.007,
-          lng: initialVictimLng + 0.005,
-        };
-        const endLoc: LatLng = { lat: initialVictimLat, lng: initialVictimLng };
+  const currentStatus: DispatchMissionStatus = (mission?.status || 'ACCEPTED').toUpperCase() as DispatchMissionStatus;
+  const destinationName = mission?.destinationName || initialDestination || 'Chưa xác định điểm đến';
+  const licensePlate = getResourceLicensePlate(driverResource);
+  const unitBadge = driverResource?.resourceCode || (driverResource?.id ? `UNIT #${driverResource.id}` : 'Xe cấp cứu');
 
-        const currentUser = globalConfig.getCurrentUser();
-        const created = await api.createAmbulanceSimulation({
-          missionId: String(missionId),
-          dispatchMissionId: String(missionId),
-          driverId: currentUser?.id,
-          vehicleId: driverResource?.id ? String(driverResource.id) : undefined,
-          startLocation: startLoc,
-          endLocation: endLoc,
-        });
+  // --- API Actions Mapping Exact BE Endpoints ---
 
-        if (cancelled) return;
-        setSimulation(created);
-        simIdRef.current = created.id;
-        setDriverPos({ ...startLoc });
+  // 1. POST /dispatch-missions/{id}/accept
+  const handleAcceptMission = async () => {
+    if (!missionId) return;
+    setLoadingAction(true);
+    try {
+      await api.acceptMission(missionId);
+      setMission(prev => (prev ? { ...prev, status: 'ACCEPTED', acceptedAt: new Date().toISOString() } : null));
+      Alert.alert('Thành Công', 'Đã chấp nhận nhiệm vụ điều phối.');
+    } catch (e: any) {
+      Alert.alert('Lỗi', e?.message || 'Không thể chấp nhận nhiệm vụ');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
 
-        // Update initial location in resource API
-        api.updateDriverResourceLocation({
-          latitude: startLoc.lat,
-          longitude: startLoc.lng,
-          speed: 38,
-          heading: 90,
-        }).catch(() => {});
-
-        // Start simulation
-        const started = await api.startAmbulanceSimulation(created.id);
-        if (cancelled) return;
-        setSimulation(started);
-        setSimStatus(started.status);
-
-        // Start polling tracking
-        pollingRef.current = setInterval(async () => {
-          if (!simIdRef.current) return;
+  // 2. POST /dispatch-missions/{id}/reject
+  const handleRejectMission = async () => {
+    if (!missionId) return;
+    Alert.alert('Từ chối nhiệm vụ', 'Bạn có chắc chắn muốn từ chối nhiệm vụ này?', [
+      { text: 'Hủy', style: 'cancel' },
+      {
+        text: 'Từ chối',
+        style: 'destructive',
+        onPress: async () => {
+          setLoadingAction(true);
           try {
-            const track: TrackingUpdate = await api.getSimulationTracking(simIdRef.current);
-            if (cancelled) return;
-            setDriverPos(track.currentLocation);
-            if (track.status) setSimStatus(track.status);
-
-            // Sync with PATCH /driver-resource/location
-            api.updateDriverResourceLocation({
-              latitude: track.currentLocation.lat,
-              longitude: track.currentLocation.lng,
-              speed: track.speed || 38,
-              heading: track.heading || 0,
-            }).catch(() => {});
-
-            if (typeof track.distanceTraveled === 'number') {
-              const startDistance = 1.2;
-              setDistance(Math.max(0.05, startDistance - track.distanceTraveled));
-            }
-            if (typeof track.estimatedTimeArrival === 'number') {
-              setEta(Math.max(0, Math.ceil(track.estimatedTimeArrival / 60)));
-            }
-            if (typeof track.progress === 'number') {
-              setProgress(track.progress);
-            }
-          } catch (e) {
-            console.warn('[DriverNav] Tracking poll error:', e);
+            await api.rejectMission(missionId, 'Tài xế từ chối nhiệm vụ');
+            router.replace('/(driver)/dashboard');
+          } catch (e: any) {
+            Alert.alert('Lỗi', e?.message || 'Không thể từ chối');
+          } finally {
+            setLoadingAction(false);
           }
-        }, 1800);
-      } catch (e) {
-        console.warn('[DriverNav] Simulation init error:', e);
-      }
-    };
+        },
+      },
+    ]);
+  };
 
-    initSimulation();
-
-    return () => {
-      cancelled = true;
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-      if (simIdRef.current) {
-        api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
-      }
-    };
-  }, [initialVictimLat, initialVictimLng, loadMissionDetails, missionId, driverResource?.id]);
-
-  // --- 3. API Actions for Operational Lifecycle ---
-
-  // Action 1: POST /dispatch-missions/{id}/start (Bắt đầu di chuyển đến hiện trường)
+  // 3. POST /dispatch-missions/{id}/start -> EN_ROUTE
   const handleStartMission = async () => {
+    if (!missionId) return;
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/start:', missionId);
       const res = await api.startMission(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'EN_ROUTE_TO_SCENE' } : res));
-      setMissionPhase('EN_ROUTE_TO_SCENE');
-      await api.updateDriverResourceStatus('EN_ROUTE').catch(() => {});
-      Alert.alert('Đã Bắt Đầu Xuất Phát', 'Hệ thống đã thông báo cho Tổng đài 115 và Người dân.');
+      setMission(prev => (prev ? { ...prev, status: 'EN_ROUTE', enRouteAt: new Date().toISOString() } : res));
+      Alert.alert('Đã Bắt Đầu Di Chuyển', 'Hệ thống đã cập nhật trạng thái xe đang trên đường đến hiện trường.');
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể bắt đầu nhiệm vụ');
     } finally {
@@ -213,29 +158,17 @@ export default function NavigationScreen() {
     }
   };
 
-  // Action 2: POST /dispatch-missions/{id}/arrive-scene (Xác nhận đã đến hiện trường)
+  // 4. POST /dispatch-missions/{id}/arrive-scene -> ARRIVED_SCENE
   const handleArriveScene = async () => {
+    if (!missionId) return;
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/arrive-scene:', missionId);
       const res = await api.arriveScene(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_SCENE' } : res));
-      setMissionPhase('ARRIVED_SCENE');
-      setDistance(0);
-      setEta(0);
-      setDriverPos({ lat: initialVictimLat, lng: initialVictimLng });
-
-      await api.updateDriverResourceStatus('ARRIVED_SCENE').catch(() => {});
-      await api.updateDriverResourceLocation({
-        latitude: initialVictimLat,
-        longitude: initialVictimLng,
-        speed: 0,
-        heading: 0,
-      }).catch(() => {});
-
+      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_SCENE', arrivedSceneAt: new Date().toISOString() } : res));
       Alert.alert(
         'ĐÃ ĐẾN HIỆN TRƯỜNG! 🏥',
-        'Vui lòng tiến hành sơ cứu, ổn định tình trạng bệnh nhân và đưa bệnh nhân lên cáng cứu thương.'
+        'Vui lòng tiến hành sơ cứu, ổn định tình trạng bệnh nhân và đưa bệnh nhân lên xe.'
       );
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể cập nhật trạng thái');
@@ -244,22 +177,17 @@ export default function NavigationScreen() {
     }
   };
 
-  // Action 3: POST /dispatch-missions/{id}/start-transport (Bắt đầu vận chuyển bệnh nhân đến bệnh viện)
+  // 5. POST /dispatch-missions/{id}/start-transport -> TRANSPORTING
   const handleStartTransport = async () => {
+    if (!missionId) return;
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/start-transport:', missionId);
       const res = await api.startTransport(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'TRANSPORTING' } : res));
-      setMissionPhase('TRANSPORTING');
-      setDistance(1.8);
-      setEta(6);
-      setProgress(25);
-
-      await api.updateDriverResourceStatus('TRANSPORTING').catch(() => {});
+      setMission(prev => (prev ? { ...prev, status: 'TRANSPORTING', startTransportAt: new Date().toISOString() } : res));
       Alert.alert(
-        'BẮT ĐẦU CHUYỂN VIỆN! 🚑',
-        `Đang vận chuyển bệnh nhân về ${hospitalName}. Bản đồ đã cập nhật tuyến đường tới Bệnh viện.`
+        'BẮT ĐẦU VẬN CHUYỂN! 🚑',
+        'Đang vận chuyển bệnh nhân đến bệnh viện tiếp nhận.'
       );
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể bắt đầu vận chuyển');
@@ -268,23 +196,17 @@ export default function NavigationScreen() {
     }
   };
 
-  // Action 4: POST /dispatch-missions/{id}/arrive-hospital (Xác nhận đã đến bệnh viện)
+  // 6. POST /dispatch-missions/{id}/arrive-hospital -> ARRIVED_HOSPITAL
   const handleArriveHospital = async () => {
+    if (!missionId) return;
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/arrive-hospital:', missionId);
       const res = await api.arriveHospital(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_HOSPITAL' } : res));
-      setMissionPhase('ARRIVED_HOSPITAL');
-      setDistance(0);
-      setEta(0);
-      setProgress(100);
-      setDriverPos(hospitalLocation);
-
-      await api.updateDriverResourceStatus('ARRIVED_HOSPITAL').catch(() => {});
+      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_HOSPITAL', arrivedHospitalAt: new Date().toISOString() } : res));
       Alert.alert(
         'ĐÃ ĐẾN BỆNH VIỆN! 🏥',
-        'Tiến hành bàn giao bệnh nhân và hồ sơ y tế cho Bác sĩ Khoa Cấp Cứu tiếp nhận.'
+        'Tiến hành bàn giao bệnh nhân cho Khoa Cấp Cứu tiếp nhận.'
       );
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể cập nhật trạng thái');
@@ -293,11 +215,12 @@ export default function NavigationScreen() {
     }
   };
 
-  // Action 5: POST /dispatch-missions/{id}/complete (Hoàn thành nhiệm vụ)
+  // 7. POST /dispatch-missions/{id}/complete -> COMPLETED
   const handleCompleteMission = () => {
+    if (!missionId) return;
     Alert.alert(
       'HOÀN THÀNH NHIỆM VỤ',
-      'Xác nhận bệnh nhân đã được bàn giao cho Bệnh viện an toàn? Xe sẽ chuyển về trạng thái SẴN SÀNG đón ca mới.',
+      'Xác nhận bệnh nhân đã được bàn giao an toàn? Ca trực sẽ được kết thúc.',
       [
         { text: 'Hủy', style: 'cancel' },
         {
@@ -306,15 +229,10 @@ export default function NavigationScreen() {
             setLoadingAction(true);
             try {
               console.log('[DriverNav] Calling POST /dispatch-missions/{id}/complete:', missionId);
-              if (simIdRef.current) {
-                api.stopAmbulanceSimulation(simIdRef.current).catch(() => {});
-              }
               await api.completeMission(missionId, 'Đã bàn giao bệnh nhân an toàn cho khoa cấp cứu');
-              await api.updateDriverResourceStatus('AVAILABLE').catch(() => {});
-
               Alert.alert(
-                'HOÀN TẤT CA CẤP CỨU! 🎉',
-                'Nhiệm vụ đã được ghi nhận vào lịch sử. Xe cứu thương chuyển về trạng thái SẴN SÀNG.',
+                'HOÀN TẤT NHIỆM VỤ! 🎉',
+                'Nhiệm vụ đã được ghi nhận hoàn tất vào lịch sử hệ thống.',
                 [
                   {
                     text: 'Về Màn Hình Chính',
@@ -323,7 +241,7 @@ export default function NavigationScreen() {
                 ]
               );
             } catch (e: any) {
-              Alert.alert('Lỗi', e?.message || 'Không thể hoàn tất ca');
+              Alert.alert('Lỗi', e?.message || 'Không thể hoàn tất nhiệm vụ');
             } finally {
               setLoadingAction(false);
             }
@@ -333,275 +251,281 @@ export default function NavigationScreen() {
     );
   };
 
-  const openGoogleMaps = () => {
-    const targetLoc = missionPhase === 'TRANSPORTING' || missionPhase === 'ARRIVED_HOSPITAL'
-      ? hospitalLocation
-      : victimLocation;
-    const targetLabel = missionPhase === 'TRANSPORTING' || missionPhase === 'ARRIVED_HOSPITAL'
-      ? hospitalName
-      : `Nạn nhân: ${victimName}`;
-
-    const latLng = `${targetLoc.lat},${targetLoc.lng}`;
+  const openExternalMap = () => {
+    const latLng = `${driverPos.lat},${driverPos.lng}`;
+    const targetLabel = destinationName;
     const url = Platform.select({
-      ios: `maps:0,0?q=${targetLabel}@${latLng}`,
-      android: `geo:0,0?q=${latLng}(${targetLabel})`,
+      ios: `maps:0,0?q=${encodeURIComponent(targetLabel)}@${latLng}`,
+      android: `geo:0,0?q=${latLng}(${encodeURIComponent(targetLabel)})`,
       web: `https://www.google.com/maps/search/?api=1&query=${latLng}`,
     });
     if (url) {
       Linking.openURL(url).catch(() => {
-        Alert.alert('Lỗi', 'Không thể mở ứng dụng bản đồ bên ngoài.');
+        Alert.alert('Thông báo', `Điểm đến: ${destinationName}`);
       });
     }
   };
 
-  const callVictim = () => {
-    Linking.openURL(`tel:${victimPhone}`).catch(() => {
-      Alert.alert('Số điện thoại', `SĐT Nạn nhân: ${victimPhone}`);
-    });
-  };
+  if (loadingMission) {
+    return (
+      <View style={styles.loadingContainer}>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={styles.loadingText}>Đang tải dữ liệu nhiệm vụ...</Text>
+      </View>
+    );
+  }
 
-  const licensePlate = getResourceLicensePlate(driverResource);
-  const currentMapTarget = missionPhase === 'TRANSPORTING' || missionPhase === 'ARRIVED_HOSPITAL'
-    ? hospitalLocation
-    : victimLocation;
+  if (loadError || !mission) {
+    return (
+      <View style={styles.errorContainer}>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
+        <Text style={styles.errorTitle}>Lỗi tải nhiệm vụ</Text>
+        <Text style={styles.errorSubtitle}>{loadError || 'Không tìm thấy dữ liệu nhiệm vụ'}</Text>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => router.replace('/(driver)/dashboard')}
+        >
+          <Text style={styles.backBtnText}>Quay Về Màn Hình Chính</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#070A10" />
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
 
-        {/* TOP FLOATING CARD: PATIENT & DESTINATION */}
-        <View style={styles.topFloatCard}>
-          <View style={styles.topCardRow}>
-            <View style={styles.locationBadge}>
-              <MaterialCommunityIcons name="ambulance" size={14} color="#10B981" />
-              <Text style={styles.badgeText}>
-                {licensePlate} • {distance.toFixed(1)} km ({eta} ph)
-              </Text>
-            </View>
+        {/* HEADER */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backIconBtn}
+            onPress={() => router.replace('/(driver)/dashboard')}
+          >
+            <Ionicons name="arrow-back" size={20} color="#FFF" />
+          </TouchableOpacity>
 
-            <TouchableOpacity onPress={openGoogleMaps} style={styles.googleMapsBtn} activeOpacity={0.8}>
-              <Ionicons name="navigate-circle-outline" size={14} color="#34D399" style={{ marginRight: 4 }} />
-              <Text style={styles.googleMapsBtnText}>MỞ GOOGLE MAPS</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Phase Banner */}
-          <View style={[styles.phaseBanner, getPhaseBannerStyle(missionPhase)]}>
-            <MaterialCommunityIcons name={getPhaseIcon(missionPhase) as any} size={15} color={getPhaseColor(missionPhase)} />
-            <Text style={[styles.phaseBannerText, { color: getPhaseColor(missionPhase) }]}>
-              {getPhaseLabel(missionPhase)}
+          <View style={styles.headerTitleBox}>
+            <Text style={styles.headerTitle}>ĐIỀU HƯỚNG NHIỆM VỤ #{mission.id}</Text>
+            <Text style={styles.headerSubtitle}>
+              Yêu cầu #{mission.requestId} • {unitBadge} • {licensePlate}
             </Text>
           </View>
 
-          {/* Target Address */}
-          <Text style={styles.addressText} numberOfLines={2}>
-            <Ionicons name="location-sharp" size={13} color="#EF4444" />{' '}
-            {missionPhase === 'TRANSPORTING' || missionPhase === 'ARRIVED_HOSPITAL' ? hospitalAddress : victimAddress}
-          </Text>
-
-          <Text style={styles.injuryText} numberOfLines={1}>
-            <MaterialCommunityIcons name="medical-bag" size={13} color="#F59E0B" /> {victimInjury}
-          </Text>
-
-          {/* Progress bar */}
-          <View style={styles.progressRow}>
-            <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%` }]} />
-            </View>
-            <Text style={styles.progressPct}>{progress.toFixed(0)}%</Text>
+          <View style={[styles.statusBadge, getNavStatusBadgeStyle(currentStatus)]}>
+            <Text style={styles.statusBadgeText}>{getNavStatusText(currentStatus)}</Text>
           </View>
         </View>
 
-        {/* MAP CONTAINER */}
+        {/* MAP VIEW */}
         <View style={styles.mapContainer}>
           <AmbulanceMap
-            victimLocation={currentMapTarget}
+            victimLocation={driverPos}
             ambulanceLocation={driverPos}
-            route={simulation?.route}
           />
+
+          <TouchableOpacity style={styles.externalMapBtn} onPress={openExternalMap} activeOpacity={0.8}>
+            <Ionicons name="navigate" size={16} color="#022C22" />
+            <Text style={styles.externalMapText}>Google Maps</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* BOTTOM FLOATING MISSION CONTROLLER */}
-        <View style={[styles.bottomStatusCard, { paddingBottom: Platform.OS === 'ios' ? 36 : 20 }]}>
-          {/* Patient Info Header */}
-          <View style={styles.patientRow}>
-            <View style={styles.patientInfo}>
-              <Text style={styles.patientName}>{victimName}</Text>
-              <Text style={styles.patientPhone}>
-                <Ionicons name="call-outline" size={12} color="#94A3B8" /> {victimPhone}
-              </Text>
+        {/* BOTTOM ACTION PANEL */}
+        <ScrollView style={styles.bottomPanel} contentContainerStyle={styles.bottomContent}>
+          {/* Destination Card */}
+          <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+              <View style={styles.iconCircleRed}>
+                <Ionicons name="location-sharp" size={18} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.infoLabel}>ĐIỂM ĐẾN NHIỆM VỤ</Text>
+                <Text style={styles.destinationTitle}>{destinationName}</Text>
+                <Text style={styles.victimNoticeText}>
+                  Thông tin nạn nhân chưa được cung cấp
+                </Text>
+              </View>
             </View>
 
-            <TouchableOpacity
-              onPress={callVictim}
-              style={styles.callButton}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="call" size={16} color="#34D399" />
-              <Text style={styles.callButtonText}>GỌI NẠN NHÂN</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* GPS Live Sync Status */}
-          <View style={styles.simStatusRow}>
-            <View style={styles.livePulseDot} />
-            <Text style={styles.simStatusLabel}>
-              GPS: {driverPos.lat.toFixed(5)}, {driverPos.lng.toFixed(5)} • Vận tốc: 38 km/h
-            </Text>
-            <Text style={styles.simIdLabel} numberOfLines={1}>
-              #{missionId}
-            </Text>
-          </View>
-
-          {/* STEP-BY-STEP OPERATIONAL BUTTONS */}
-          <View style={styles.actionsBox}>
-            {loadingAction ? (
-              <View style={styles.loadingBox}>
-                <ActivityIndicator size="small" color="#10B981" />
-                <Text style={styles.loadingText}>Đang cập nhật trạng thái API...</Text>
+            {mission.notes ? (
+              <View style={styles.notesBox}>
+                <MaterialCommunityIcons name="clipboard-text-outline" size={14} color="#F59E0B" />
+                <Text style={styles.notesText}>{mission.notes}</Text>
               </View>
-            ) : (
-              <>
-                {missionPhase === 'STARTING' && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleStartMission}
-                    style={[styles.mainButton, { backgroundColor: '#38BDF8' }]}
-                  >
-                    <FontAwesome5 name="paper-plane" size={14} color="#082F49" style={styles.btnIcon} />
-                    <Text style={[styles.mainButtonText, { color: '#082F49' }]}>
-                      BẮT ĐẦU DI CHUYỂN ĐẾN HIỆN TRƯỜNG (POST /start)
-                    </Text>
-                  </TouchableOpacity>
-                )}
+            ) : null}
+          </View>
 
-                {missionPhase === 'EN_ROUTE_TO_SCENE' && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleArriveScene}
-                    style={[styles.mainButton, { backgroundColor: '#10B981' }]}
-                  >
-                    <FontAwesome5 name="map-marker-alt" size={15} color="#022C22" style={styles.btnIcon} />
-                    <Text style={styles.mainButtonText}>
-                      XÁC NHẬN ĐÃ ĐẾN HIỆN TRƯỜNG (POST /arrive-scene)
-                    </Text>
-                  </TouchableOpacity>
-                )}
+          {/* ACTION BUTTONS BASED ON EXACT STATE MACHINE */}
+          <View style={styles.actionSection}>
+            {/* Status: DISPATCHED */}
+            {currentStatus === 'DISPATCHED' && (
+              <View style={styles.btnRow}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.declineBtn]}
+                  onPress={handleRejectMission}
+                  disabled={loadingAction}
+                >
+                  <Text style={styles.declineBtnText}>TỪ CHỐI (POST /reject)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.primaryBtn]}
+                  onPress={handleAcceptMission}
+                  disabled={loadingAction}
+                >
+                  {loadingAction ? (
+                    <ActivityIndicator size="small" color="#022C22" />
+                  ) : (
+                    <Text style={styles.primaryBtnText}>CHẤP NHẬN (POST /accept)</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
 
-                {missionPhase === 'ARRIVED_SCENE' && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleStartTransport}
-                    style={[styles.mainButton, { backgroundColor: '#F59E0B' }]}
-                  >
-                    <FontAwesome5 name="ambulance" size={15} color="#451A03" style={styles.btnIcon} />
-                    <Text style={[styles.mainButtonText, { color: '#451A03' }]}>
-                      BẮT ĐẦU VẬN CHUYỂN BỆNH NHÂN (POST /start-transport)
-                    </Text>
-                  </TouchableOpacity>
+            {/* Status: ACCEPTED */}
+            {currentStatus === 'ACCEPTED' && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.primaryBtn]}
+                onPress={handleStartMission}
+                disabled={loadingAction}
+              >
+                {loadingAction ? (
+                  <ActivityIndicator size="small" color="#022C22" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="ambulance" size={16} color="#022C22" style={{ marginRight: 8 }} />
+                    <Text style={styles.primaryBtnText}>BẮT ĐẦU DI CHUYỂN (POST /start)</Text>
+                  </>
                 )}
+              </TouchableOpacity>
+            )}
 
-                {missionPhase === 'TRANSPORTING' && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleArriveHospital}
-                    style={[styles.mainButton, { backgroundColor: '#A78BFA' }]}
-                  >
-                    <FontAwesome5 name="hospital" size={15} color="#2E1065" style={styles.btnIcon} />
-                    <Text style={[styles.mainButtonText, { color: '#2E1065' }]}>
-                      XÁC NHẬN ĐÃ ĐẾN BỆNH VIỆN (POST /arrive-hospital)
-                    </Text>
-                  </TouchableOpacity>
+            {/* Status: EN_ROUTE */}
+            {currentStatus === 'EN_ROUTE' && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.arriveBtn]}
+                onPress={handleArriveScene}
+                disabled={loadingAction}
+              >
+                {loadingAction ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="map-marker-check" size={20} color="#FFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.arriveBtnText}>ĐÃ ĐẾN HIỆN TRƯỜNG (POST /arrive-scene)</Text>
+                  </>
                 )}
+              </TouchableOpacity>
+            )}
 
-                {(missionPhase === 'ARRIVED_HOSPITAL' || missionPhase === 'COMPLETED') && (
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onPress={handleCompleteMission}
-                    style={[styles.mainButton, { backgroundColor: '#EF4444' }]}
-                  >
-                    <FontAwesome5 name="flag-checkered" size={15} color="#FFF" style={styles.btnIcon} />
-                    <Text style={[styles.mainButtonText, { color: '#FFF' }]}>
-                      HOÀN THÀNH NHIỆM VỤ (POST /complete)
-                    </Text>
-                  </TouchableOpacity>
+            {/* Status: ARRIVED_SCENE */}
+            {currentStatus === 'ARRIVED_SCENE' && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.transportBtn]}
+                onPress={handleStartTransport}
+                disabled={loadingAction}
+              >
+                {loadingAction ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="hospital-building" size={20} color="#FFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.transportBtnText}>BẮT ĐẦU VẬN CHUYỂN (POST /start-transport)</Text>
+                  </>
                 )}
-              </>
+              </TouchableOpacity>
+            )}
+
+            {/* Status: TRANSPORTING */}
+            {currentStatus === 'TRANSPORTING' && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.arriveHospitalBtn]}
+                onPress={handleArriveHospital}
+                disabled={loadingAction}
+              >
+                {loadingAction ? (
+                  <ActivityIndicator size="small" color="#022C22" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-done-circle" size={20} color="#022C22" style={{ marginRight: 8 }} />
+                    <Text style={styles.arriveHospitalBtnText}>ĐÃ ĐẾN BỆNH VIỆN (POST /arrive-hospital)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Status: ARRIVED_HOSPITAL */}
+            {currentStatus === 'ARRIVED_HOSPITAL' && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.completeBtn]}
+                onPress={handleCompleteMission}
+                disabled={loadingAction}
+              >
+                {loadingAction ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="check-circle" size={20} color="#FFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.completeBtnText}>HOÀN THÀNH NHIỆM VỤ (POST /complete)</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {/* Status: COMPLETED / CANCELLED */}
+            {(currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED') && (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.backBtnFull]}
+                onPress={() => router.replace('/(driver)/dashboard')}
+              >
+                <Text style={styles.backBtnFullText}>QUAY VỀ DASHBOARD</Text>
+              </TouchableOpacity>
             )}
           </View>
-        </View>
-
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
 
-const getPhaseLabel = (phase: DispatchMissionStatus) => {
-  switch (phase) {
-    case 'STARTING':
-      return 'BƯỚC 1: SẴN SÀNG XUẤT PHÁT';
-    case 'EN_ROUTE_TO_SCENE':
-      return 'BƯỚC 1: ĐANG DI CHUYỂN ĐẾN HIỆN TRƯỜNG';
+const getNavStatusBadgeStyle = (status: string) => {
+  switch (status) {
+    case 'DISPATCHED':
+      return { backgroundColor: 'rgba(245, 158, 11, 0.2)', borderColor: 'rgba(245, 158, 11, 0.4)' };
+    case 'ACCEPTED':
+    case 'EN_ROUTE':
+      return { backgroundColor: 'rgba(56, 189, 248, 0.2)', borderColor: 'rgba(56, 189, 248, 0.4)' };
     case 'ARRIVED_SCENE':
-      return 'BƯỚC 2: ĐÃ ĐẾN HIỆN TRƯỜNG • TIẾN HÀNH SƠ CỨU';
     case 'TRANSPORTING':
-      return 'BƯỚC 3: ĐANG VẬN CHUYỂN BỆNH NHÂN ĐẾN BỆNH VIỆN';
+      return { backgroundColor: 'rgba(167, 139, 250, 0.2)', borderColor: 'rgba(167, 139, 250, 0.4)' };
     case 'ARRIVED_HOSPITAL':
-      return 'BƯỚC 4: ĐÃ ĐẾN BỆNH VIỆN • BÀN GIAO KHOA CẤP CỨU';
     case 'COMPLETED':
-      return 'BƯỚC 5: ĐÃ HOÀN TẤT CA CỨU HỘ';
+      return { backgroundColor: 'rgba(16, 185, 129, 0.2)', borderColor: 'rgba(16, 185, 129, 0.4)' };
     default:
-      return 'ĐANG THỰC HIỆN NHIỆM VỤ CẤP CỨU';
+      return { backgroundColor: 'rgba(148, 163, 184, 0.2)', borderColor: 'rgba(148, 163, 184, 0.4)' };
   }
 };
 
-const getPhaseColor = (phase: DispatchMissionStatus) => {
-  switch (phase) {
-    case 'STARTING':
-      return '#38BDF8';
-    case 'EN_ROUTE_TO_SCENE':
-      return '#10B981';
+const getNavStatusText = (status: string) => {
+  switch (status) {
+    case 'DISPATCHED':
+      return 'CHỜ NHẬN';
+    case 'ACCEPTED':
+      return 'ĐÃ NHẬN';
+    case 'EN_ROUTE':
+      return 'ĐANG DI CHUYỂN';
     case 'ARRIVED_SCENE':
-      return '#F59E0B';
+      return 'ĐÃ ĐẾN HIỆN TRƯỜNG';
     case 'TRANSPORTING':
-      return '#A78BFA';
+      return 'ĐANG VẬN CHUYỂN';
     case 'ARRIVED_HOSPITAL':
-      return '#34D399';
+      return 'ĐÃ ĐẾN BỆNH VIỆN';
     case 'COMPLETED':
-      return '#EF4444';
+      return 'HOÀN THÀNH';
     default:
-      return '#38BDF8';
+      return status;
   }
-};
-
-const getPhaseIcon = (phase: DispatchMissionStatus) => {
-  switch (phase) {
-    case 'STARTING':
-      return 'send';
-    case 'EN_ROUTE_TO_SCENE':
-      return 'car-speed-limiter';
-    case 'ARRIVED_SCENE':
-      return 'account-injury';
-    case 'TRANSPORTING':
-      return 'ambulance';
-    case 'ARRIVED_HOSPITAL':
-      return 'hospital-building';
-    case 'COMPLETED':
-      return 'check-decagram';
-    default:
-      return 'alarm-light';
-  }
-};
-
-const getPhaseBannerStyle = (phase: DispatchMissionStatus) => {
-  const color = getPhaseColor(phase);
-  return {
-    backgroundColor: `${color}15`,
-    borderColor: `${color}40`,
-  };
 };
 
 const styles = StyleSheet.create({
@@ -612,212 +536,241 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  topFloatCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.94)',
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    zIndex: 10,
-    elevation: 8,
-  },
-  topCardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  locationBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-  },
-  badgeText: {
-    color: '#34D399',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  googleMapsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(56, 189, 248, 0.25)',
-  },
-  googleMapsBtnText: {
-    color: '#38BDF8',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  phaseBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 8,
-  },
-  phaseBannerText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  addressText: {
-    color: '#F8FAFC',
-    fontSize: 13,
-    fontWeight: '800',
-    marginBottom: 4,
-    lineHeight: 18,
-  },
-  injuryText: {
-    color: '#F59E0B',
-    fontSize: 11,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  progressBarBg: {
+  loadingContainer: {
     flex: 1,
-    height: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#10B981',
-    borderRadius: 3,
-  },
-  progressPct: {
-    color: '#34D399',
-    fontSize: 10,
-    fontWeight: '800',
-    width: 32,
-    textAlign: 'right',
-  },
-  mapContainer: {
-    flex: 1,
-  },
-  bottomStatusCard: {
-    backgroundColor: 'rgba(15, 23, 42, 0.96)',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    elevation: 16,
-  },
-  patientRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  patientInfo: {
-    flex: 1,
-  },
-  patientName: {
-    color: '#F8FAFC',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  patientPhone: {
-    color: '#94A3B8',
-    fontSize: 12,
-    marginTop: 2,
-    fontWeight: '600',
-  },
-  callButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-  },
-  callButtonText: {
-    color: '#34D399',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    marginVertical: 10,
-  },
-  simStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
-  },
-  livePulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  simStatusLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
-    fontWeight: '600',
-    flex: 1,
-  },
-  simIdLabel: {
-    color: '#64748B',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  actionsBox: {
-    marginTop: 4,
-  },
-  loadingBox: {
-    flexDirection: 'row',
+    backgroundColor: '#070A10',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 14,
+    gap: 12,
   },
   loadingText: {
     color: '#94A3B8',
     fontSize: 12,
-    fontWeight: '700',
   },
-  mainButton: {
-    flexDirection: 'row',
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#070A10',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    elevation: 4,
+    padding: 24,
+    gap: 12,
   },
-  btnIcon: {
-    marginRight: 8,
+  errorTitle: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '800',
   },
-  mainButtonText: {
+  errorSubtitle: {
+    color: '#94A3B8',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  backBtn: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  backBtnText: {
     color: '#022C22',
     fontSize: 12,
     fontWeight: '900',
-    letterSpacing: 0.5,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 10,
+  },
+  backIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitleBox: {
+    flex: 1,
+  },
+  headerTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  headerSubtitle: {
+    color: '#94A3B8',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  statusBadgeText: {
+    color: '#F8FAFC',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  mapContainer: {
+    height: 240,
+    position: 'relative',
+  },
+  externalMapBtn: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    elevation: 4,
+  },
+  externalMapText: {
+    color: '#022C22',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  bottomPanel: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+  },
+  bottomContent: {
+    padding: 16,
+    gap: 14,
+  },
+  infoCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 10,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconCircleRed: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoLabel: {
+    color: '#94A3B8',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  destinationTitle: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  victimNoticeText: {
+    color: '#64748B',
+    fontSize: 10,
+    marginTop: 4,
+    fontStyle: 'italic',
+  },
+  notesBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    padding: 10,
+    borderRadius: 8,
+  },
+  notesText: {
+    color: '#F59E0B',
+    fontSize: 11,
+    flex: 1,
+  },
+  actionSection: {
+    gap: 10,
+  },
+  btnRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  primaryBtn: {
+    flex: 1,
+    backgroundColor: '#10B981',
+  },
+  primaryBtnText: {
+    color: '#022C22',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  declineBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  declineBtnText: {
+    color: '#F87171',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  arriveBtn: {
+    backgroundColor: '#38BDF8',
+  },
+  arriveBtnText: {
+    color: '#022C22',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  transportBtn: {
+    backgroundColor: '#8B5CF6',
+  },
+  transportBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  arriveHospitalBtn: {
+    backgroundColor: '#F59E0B',
+  },
+  arriveHospitalBtnText: {
+    color: '#022C22',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  completeBtn: {
+    backgroundColor: '#10B981',
+  },
+  completeBtnText: {
+    color: '#022C22',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  backBtnFull: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  backBtnFullText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '900',
   },
 });
