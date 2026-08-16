@@ -205,7 +205,7 @@ export default function DispatcherDashboard() {
                 data={cases}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                keyExtractor={item => item.id}
+                keyExtractor={(item, index) => (item?.id != null ? String(item.id) : `case-h-${index}`)}
                 renderItem={({ item }) => (
                   <TouchableOpacity 
                     style={styles.glassCardSmall}
@@ -231,7 +231,7 @@ export default function DispatcherDashboard() {
           <FlatList
             data={cases}
             contentContainerStyle={styles.listPadding}
-            keyExtractor={item => item.id}
+            keyExtractor={(item, index) => (item?.id != null ? String(item.id) : `case-v-${index}`)}
             renderItem={({ item }) => (
               <TouchableOpacity 
                 style={styles.glassCardLarge}

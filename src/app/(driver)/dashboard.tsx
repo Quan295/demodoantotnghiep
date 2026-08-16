@@ -830,7 +830,7 @@ export default function DriverDashboard() {
           {activeTab === 'missions' && (
             <FlatList
               data={missionsList}
-              keyExtractor={item => String(item.id)}
+              keyExtractor={(item, index) => (item?.id != null ? String(item.id) : `mission-key-${index}`)}
               contentContainerStyle={styles.missionsListContent}
               refreshControl={
                 <RefreshControl
@@ -1001,7 +1001,7 @@ export default function DriverDashboard() {
               </View>
               <FlatList
                 data={gpsLogs}
-                keyExtractor={item => item.id}
+                keyExtractor={(item, index) => (item?.id ? item.id : `log-key-${index}`)}
                 contentContainerStyle={styles.logsListContent}
                 renderItem={({ item }) => (
                   <View style={styles.logCard}>

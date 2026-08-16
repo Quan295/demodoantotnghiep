@@ -270,7 +270,11 @@ export default function SOSScreen() {
       }
 
       if (Array.isArray(calls)) {
-        setMyCalls(calls);
+        const normalized = calls.map((c: any, index: number) => ({
+          ...c,
+          id: c.id ?? c.callId ?? c.requestId ?? c.emergencyCallId ?? `call-${index}`,
+        }));
+        setMyCalls(normalized);
       }
     } catch (error: any) {
       console.warn('Fetch calls error:', error);
@@ -559,7 +563,7 @@ export default function SOSScreen() {
           {activeTab === 'history' && (
             <FlatList
               data={myCalls}
-              keyExtractor={item => String(item.id)}
+              keyExtractor={(item, index) => (item?.id != null ? String(item.id) : `call-key-${index}`)}
               contentContainerStyle={styles.historyListContent}
               refreshControl={
                 <RefreshControl
@@ -568,28 +572,32 @@ export default function SOSScreen() {
                   tintColor="#EF4444"
                 />
               }
-              renderItem={({ item }) => (
-                <View style={styles.callHistoryCard}>
-                  <View style={styles.callCardHeader}>
-                    <View style={styles.callIdBadge}>
-                      <Text style={styles.callIdText}>MÃ YÊU CẦU: #{item.id}</Text>
-                    </View>
-                    <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
-                      <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
-                    </View>
-                  </View>
+              renderItem={({ item, index }) => {
+                const rawTime = item.createdAt || (item as any).created_at || (item as any).timestamp;
+                const formattedTime = rawTime && !Number.isNaN(new Date(rawTime).getTime())
+                  ? new Date(rawTime).toLocaleString('vi-VN')
+                  : 'Chưa có thời gian';
 
-                  <Text style={styles.callDescriptionText} numberOfLines={2}>
-                    {item.description || 'Yêu cầu cứu hộ khẩn cấp 115'}
-                  </Text>
-
-                  <View style={styles.callMetaRow}>
-                    <View style={styles.metaItem}>
-                      <Ionicons name="time-outline" size={13} color="#94A3B8" />
-                      <Text style={styles.metaText}>
-                        {new Date(item.createdAt).toLocaleString('vi-VN')}
-                      </Text>
+                return (
+                  <View style={styles.callHistoryCard}>
+                    <View style={styles.callCardHeader}>
+                      <View style={styles.callIdBadge}>
+                        <Text style={styles.callIdText}>MÃ YÊU CẦU: #{item.id ?? index + 1}</Text>
+                      </View>
+                      <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
+                        <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
+                      </View>
                     </View>
+
+                    <Text style={styles.callDescriptionText} numberOfLines={2}>
+                      {item.description || 'Yêu cầu cứu hộ khẩn cấp 115'}
+                    </Text>
+
+                    <View style={styles.callMetaRow}>
+                      <View style={styles.metaItem}>
+                        <Ionicons name="time-outline" size={13} color="#94A3B8" />
+                        <Text style={styles.metaText}>{formattedTime}</Text>
+                      </View>
                     {(() => {
                       const ext: any = typeof item.extended_attributes === 'string'
                         ? (() => { try { return JSON.parse(item.extended_attributes); } catch { return {}; } })()
