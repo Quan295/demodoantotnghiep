@@ -30,7 +30,17 @@ import {
 import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
-import { DispatchMission, DriverResource, LatLng, getResourceLicensePlate } from '@/types';
+import {
+  DispatchMission,
+  DriverResource,
+  LatLng,
+  getResourceLicensePlate,
+  getResourceDriverName,
+  getResourceDriverPhone,
+  getResourceProviderName,
+  getResourceVehicleType,
+  getResourceEquipmentList,
+} from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
 const { width, height } = Dimensions.get('window');
@@ -540,38 +550,13 @@ export default function DriverDashboard() {
   };
 
   const currentUser = globalConfig.getCurrentUser();
-  const driverName = driverResource?.driverName || currentUser?.name || 'Bác sĩ / Tài xế Hùng';
+  const driverName = getResourceDriverName(driverResource, currentUser);
+  const driverPhone = getResourceDriverPhone(driverResource, currentUser);
   const unitBadge = driverResource?.vehicleNumber || (driverResource?.id ? `UNIT: #${driverResource.id}` : 'UNIT: AMB-042');
   const licensePlate = getResourceLicensePlate(driverResource);
-
-  const extAttrs = driverResource?.extended_attributes || driverResource?.extendedAttributes;
-  let extObj: any = {};
-  if (typeof extAttrs === 'string') {
-    try { extObj = JSON.parse(extAttrs); } catch {}
-  } else if (typeof extAttrs === 'object' && extAttrs) {
-    extObj = extAttrs;
-  }
-
-  const providerTitle = driverResource?.providerName || extObj.hospital || 'Bệnh viện Cấp cứu 115 - Chi nhánh Đống Đa';
-  const vehicleTypeStr =
-    extObj.vehicle_type ||
-    extObj.vehicleType ||
-    driverResource?.vehicleType ||
-    driverResource?.type ||
-    'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)';
-
-  const equipmentList: string[] = Array.isArray(driverResource?.equipment)
-    ? driverResource.equipment
-    : typeof driverResource?.equipment === 'string'
-    ? driverResource.equipment.split(',').map((s: string) => s.trim())
-    : [
-        'Máy sốc tim ngoài lồng ngực tự động (AED)',
-        'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
-        'Máy thở mini di động chuyên dụng cấp cứu',
-        'Bộ nẹp cố định cột sống & cổ đa năng',
-        'Cáng / Băng ca cứu thương thủy lực gấp gọn',
-        'Bộ sơ cấp cứu & dịch truyền tĩnh mạch',
-      ];
+  const providerTitle = getResourceProviderName(driverResource);
+  const vehicleTypeStr = getResourceVehicleType(driverResource);
+  const equipmentList = getResourceEquipmentList(driverResource);
 
   const mapAmbulanceLocation: LatLng = {
     lat: currentCoords.latitude,
@@ -1036,31 +1021,49 @@ export default function DriverDashboard() {
           {activeTab === 'vehicle' && (
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
               <View style={styles.specCard}>
-                <Text style={styles.specSectionTitle}>CHI TIẾT XE CẤP CỨU (GET /driver-resource)</Text>
+                <View style={styles.specHeaderRow}>
+                  <MaterialCommunityIcons name="car-info" size={18} color="#10B981" />
+                  <Text style={styles.specSectionTitle}>CHI TIẾT XE CẤP CỨU (GET /driver-resource)</Text>
+                </View>
 
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Mã định danh (Resource ID):</Text>
-                  <Text style={styles.specValue}>#{driverResource?.id || '1042'}</Text>
-                </View>
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Biển kiểm soát:</Text>
-                  <Text style={[styles.specValue, { color: '#34D399', fontWeight: '800' }]}>{licensePlate}</Text>
-                </View>
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Loại xe cứu thương:</Text>
-                  <Text style={styles.specValue}>{vehicleTypeStr}</Text>
-                </View>
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Đơn vị quản lý / Bệnh viện:</Text>
-                  <Text style={styles.specValue}>{providerTitle}</Text>
-                </View>
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Tài xế / Bác sĩ phụ trách:</Text>
-                  <Text style={styles.specValue}>{driverName}</Text>
-                </View>
-                <View style={styles.specItemRow}>
-                  <Text style={styles.specLabel}>Số điện thoại liên hệ:</Text>
-                  <Text style={styles.specValue}>{driverResource?.driverPhone || '0988.115.115'}</Text>
+                <View style={styles.specGrid}>
+                  <View style={styles.specHalfRow}>
+                    <View style={styles.specBlock}>
+                      <Text style={styles.specLabel}>MÃ ĐỊNH DANH (ID)</Text>
+                      <Text style={styles.specValueHighlight}>#{driverResource?.id || '1042'}</Text>
+                    </View>
+                    <View style={styles.specBlock}>
+                      <Text style={styles.specLabel}>BIỂN KIỂM SOÁT</Text>
+                      <Text style={[styles.specValueHighlight, { color: '#34D399' }]}>{licensePlate}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.specDivider} />
+
+                  <View style={styles.specFullRow}>
+                    <Text style={styles.specLabel}>LOẠI XE CỨU THƯƠNG</Text>
+                    <Text style={styles.specValueBold}>{vehicleTypeStr}</Text>
+                  </View>
+
+                  <View style={styles.specDivider} />
+
+                  <View style={styles.specFullRow}>
+                    <Text style={styles.specLabel}>ĐƠN VỊ QUẢN LÝ / BỆNH VIỆN</Text>
+                    <Text style={styles.specValueBold}>{providerTitle}</Text>
+                  </View>
+
+                  <View style={styles.specDivider} />
+
+                  <View style={styles.specHalfRow}>
+                    <View style={styles.specBlock}>
+                      <Text style={styles.specLabel}>TÀI XẾ PHỤ TRÁCH</Text>
+                      <Text style={styles.specValueBold}>{driverName}</Text>
+                    </View>
+                    <View style={styles.specBlock}>
+                      <Text style={styles.specLabel}>SỐ ĐIỆN THOẠI</Text>
+                      <Text style={[styles.specValueBold, { color: '#38BDF8' }]}>{driverPhone}</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
 
@@ -1924,32 +1927,58 @@ const styles = StyleSheet.create({
   // Tab 3: Vehicle Specs Styles
   specCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.45)',
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  specHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
   },
   specSectionTitle: {
     color: '#10B981',
     fontSize: 11,
     fontWeight: '900',
-    marginBottom: 10,
+    letterSpacing: 0.5,
   },
-  specItemRow: {
+  specGrid: {
+    gap: 10,
+  },
+  specHalfRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    gap: 12,
+  },
+  specBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  specFullRow: {
+    gap: 4,
+  },
+  specDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    marginVertical: 2,
   },
   specLabel: {
     color: '#94A3B8',
-    fontSize: 11,
-  },
-  specValue: {
-    color: '#F8FAFC',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  specValueBold: {
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  specValueHighlight: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '900',
   },
   equipmentCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.45)',

@@ -148,6 +148,162 @@ export function getResourceLicensePlate(resource?: DriverResource | null): strin
   );
 }
 
+/**
+ * Trích xuất Tên Tài xế từ DriverResource / extended_attributes / currentUser
+ */
+export function getResourceDriverName(resource?: DriverResource | null, currentUser?: any): string {
+  if (!resource) return currentUser?.name || 'Bác sĩ / Tài xế Hùng';
+
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  let extObj: any = {};
+  if (typeof ext === 'string') {
+    try { extObj = JSON.parse(ext); } catch {}
+  } else if (typeof ext === 'object' && ext) {
+    extObj = ext;
+  }
+
+  return (
+    resource.driverName ||
+    (resource as any).driver_name ||
+    (resource as any).driver?.name ||
+    (resource as any).driver?.fullName ||
+    extObj.driver_name ||
+    extObj.driverName ||
+    extObj.driver ||
+    currentUser?.name ||
+    currentUser?.fullName ||
+    'Bác sĩ / Tài xế Hùng'
+  );
+}
+
+/**
+ * Trích xuất Số điện thoại Tài xế từ DriverResource / extended_attributes / currentUser
+ */
+export function getResourceDriverPhone(resource?: DriverResource | null, currentUser?: any): string {
+  if (!resource) return currentUser?.phone || currentUser?.phoneNumber || '0988.115.115';
+
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  let extObj: any = {};
+  if (typeof ext === 'string') {
+    try { extObj = JSON.parse(ext); } catch {}
+  } else if (typeof ext === 'object' && ext) {
+    extObj = ext;
+  }
+
+  return (
+    resource.driverPhone ||
+    (resource as any).driver_phone ||
+    (resource as any).phone ||
+    (resource as any).phoneNumber ||
+    (resource as any).driver?.phone ||
+    (resource as any).driver?.phoneNumber ||
+    extObj.driver_phone ||
+    extObj.driverPhone ||
+    extObj.phone ||
+    extObj.phoneNumber ||
+    currentUser?.phone ||
+    currentUser?.phoneNumber ||
+    '0988.115.115'
+  );
+}
+
+/**
+ * Trích xuất Tên Đơn vị quản lý / Bệnh viện từ DriverResource / extended_attributes
+ */
+export function getResourceProviderName(resource?: DriverResource | null): string {
+  if (!resource) return 'Bệnh viện Cấp cứu 115 - Chi nhánh Đống Đa';
+
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  let extObj: any = {};
+  if (typeof ext === 'string') {
+    try { extObj = JSON.parse(ext); } catch {}
+  } else if (typeof ext === 'object' && ext) {
+    extObj = ext;
+  }
+
+  return (
+    resource.providerName ||
+    (resource as any).provider_name ||
+    (resource as any).provider?.name ||
+    (resource as any).hospital_name ||
+    (resource as any).hospitalName ||
+    extObj.provider_name ||
+    extObj.providerName ||
+    extObj.hospital ||
+    extObj.hospital_name ||
+    extObj.hospitalName ||
+    'Bệnh viện Cấp cứu 115 - Chi nhánh Đống Đa'
+  );
+}
+
+/**
+ * Trích xuất Loại xe cứu thương từ DriverResource / extended_attributes
+ */
+export function getResourceVehicleType(resource?: DriverResource | null): string {
+  if (!resource) return 'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)';
+
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  let extObj: any = {};
+  if (typeof ext === 'string') {
+    try { extObj = JSON.parse(ext); } catch {}
+  } else if (typeof ext === 'object' && ext) {
+    extObj = ext;
+  }
+
+  return (
+    extObj.vehicle_type ||
+    extObj.vehicleType ||
+    extObj.model ||
+    extObj.type ||
+    resource.vehicleType ||
+    (resource as any).vehicle_type ||
+    resource.type ||
+    'Xe Cấp Cứu Hồi Sức Tích Cực (ICU Ambulance)'
+  );
+}
+
+/**
+ * Trích xuất Danh mục trang thiết bị y tế từ DriverResource / extended_attributes
+ */
+export function getResourceEquipmentList(resource?: DriverResource | null): string[] {
+  const defaultList = [
+    'Máy sốc tim ngoài lồng ngực tự động (AED)',
+    'Bình Oxy y tế 10L kèm đồng hồ đo lưu lượng',
+    'Máy thở mini di động chuyên dụng cấp cứu',
+    'Bộ nẹp cố định cột sống & cổ đa năng',
+    'Cáng / Băng ca cứu thương thủy lực gấp gọn',
+    'Bộ sơ cấp cứu & dịch truyền tĩnh mạch',
+  ];
+
+  if (!resource) return defaultList;
+
+  const ext = resource.extended_attributes || resource.extendedAttributes;
+  let extObj: any = {};
+  if (typeof ext === 'string') {
+    try { extObj = JSON.parse(ext); } catch {}
+  } else if (typeof ext === 'object' && ext) {
+    extObj = ext;
+  }
+
+  const raw =
+    resource.equipment ||
+    (resource as any).equipments ||
+    extObj.equipment ||
+    extObj.equipments ||
+    extObj.equipment_list ||
+    extObj.medical_equipment;
+
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map(String).filter(s => s.trim().length > 0);
+  }
+  if (typeof raw === 'string' && raw.trim().length > 0) {
+    const parsed = raw.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (parsed.length > 0) return parsed;
+  }
+
+  return defaultList;
+}
+
 export interface DriverLocationUpdatePayload {
   latitude: number;
   longitude: number;
