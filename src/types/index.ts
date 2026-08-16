@@ -217,6 +217,63 @@ export interface CallStatusResponse {
   stepIndex?: number;
 }
 
+// --- Dispatch Mission Types (DRIVER - Mission API) ---
+export type DispatchMissionStatus =
+  | 'PENDING'
+  | 'ASSIGNED'
+  | 'ACCEPTED'
+  | 'REJECTED'
+  | 'STARTED'
+  | 'EN_ROUTE_TO_SCENE'
+  | 'ARRIVED_SCENE'
+  | 'START_TRANSPORT'
+  | 'TRANSPORTING'
+  | 'ARRIVED_HOSPITAL'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | string;
+
+export interface DispatchMission {
+  id: string | number;
+  callId?: string | number;
+  emergencyCallId?: string | number;
+  driverId?: string | number;
+  driverName?: string;
+  driverPhone?: string;
+  vehicleId?: string | number;
+  vehiclePlate?: string;
+  providerId?: string | number;
+  providerName?: string;
+  hospitalName?: string;
+  hospitalAddress?: string;
+  hospitalLocation?: LatLng;
+  status: DispatchMissionStatus;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  description?: string;
+  injury?: string;
+  patientName?: string;
+  patientPhone?: string;
+  victimName?: string;
+  victimPhone?: string;
+  victimAddress?: string;
+  pickupAddress?: string;
+  pickupLocation?: LatLng | { latitude: number; longitude: number; lat?: number; lng?: number; address?: string };
+  dropoffLocation?: LatLng | { latitude: number; longitude: number; lat?: number; lng?: number; address?: string };
+  latitude?: number;
+  longitude?: number;
+  distanceKm?: number;
+  estimatedEtaMin?: number;
+  startTime?: string;
+  arrivedSceneTime?: string;
+  startTransportTime?: string;
+  arrivedHospitalTime?: string;
+  completedTime?: string;
+  createdAt: string;
+  updatedAt?: string;
+  extended_attributes?: Record<string, any> | string | null;
+  extendedAttributes?: Record<string, any> | string | null;
+}
+
 export interface EmergencyCase {
   id: string;
   reporterId: string;

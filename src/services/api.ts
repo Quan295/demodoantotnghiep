@@ -1,4 +1,16 @@
-import { AmbulanceSimulation, CallStatusResponse, DriverLocationUpdatePayload, DriverResource, EmergencyCall, LatLng, TrackingUpdate, User, Vehicle } from '@/types';
+import {
+  AmbulanceSimulation,
+  CallStatusResponse,
+  DispatchMission,
+  DispatchMissionStatus,
+  DriverLocationUpdatePayload,
+  DriverResource,
+  EmergencyCall,
+  LatLng,
+  TrackingUpdate,
+  User,
+  Vehicle,
+} from '@/types';
 import { globalConfig } from './config';
 
 // Define API Response Type
@@ -27,6 +39,100 @@ const MOCK_USERS: (User & { username: string })[] = [
 const MOCK_VEHICLES: Vehicle[] = [
   { id: '1', licensePlate: '30A-12345', type: 'ambulance', status: 'available', providerId: '2' },
   { id: '2', licensePlate: '30A-67890', type: 'emergency-car', status: 'busy', providerId: '2' },
+];
+
+let MOCK_DISPATCH_MISSIONS: DispatchMission[] = [
+  {
+    id: 'DM-101',
+    callId: 'call-881',
+    emergencyCallId: 'call-881',
+    driverId: '3',
+    driverName: 'Bác sĩ / Tài xế Hùng',
+    driverPhone: '0988.115.115',
+    vehicleId: '1042',
+    vehiclePlate: '29A-115.88',
+    providerId: '2',
+    providerName: 'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa',
+    hospitalName: 'Bệnh viện Cấp Cứu 115 (Khoa Cấp Cứu)',
+    hospitalAddress: 'Số 1 Chùa Bộc, Trung Tự, Đống Đa, Hà Nội',
+    hospitalLocation: { lat: 21.0075, lng: 105.8285 },
+    status: 'ASSIGNED',
+    priority: 'HIGH',
+    description: 'Tai nạn xe máy ngã trượt trên đường, nghi gãy xương cẳng chân phải, chảy máu nhiều',
+    injury: 'Chấn thương gãy chân - Cần nẹp cố định & cầm máu',
+    patientName: 'Nguyễn Văn Nam',
+    patientPhone: '0987.654.321',
+    victimName: 'Nguyễn Văn Nam',
+    victimPhone: '0987.654.321',
+    victimAddress: '12 Chùa Bộc, Đống Đa, Hà Nội (Gần ngã tư Phạm Ngọc Thạch)',
+    pickupAddress: '12 Chùa Bộc, Đống Đa, Hà Nội',
+    pickupLocation: { lat: 21.0091, lng: 105.8247 },
+    dropoffLocation: { lat: 21.0075, lng: 105.8285 },
+    latitude: 21.0091,
+    longitude: 105.8247,
+    distanceKm: 1.2,
+    estimatedEtaMin: 4,
+    createdAt: new Date(Date.now() - 300000).toISOString(),
+    updatedAt: new Date(Date.now() - 100000).toISOString(),
+    extended_attributes: {
+      license_plate: '29A-115.88',
+      driver_name: 'Bác sĩ / Tài xế Hùng',
+      hospital_name: 'Bệnh viện Cấp Cứu 115',
+    },
+  },
+  {
+    id: 'DM-100',
+    callId: 'call-790',
+    emergencyCallId: 'call-790',
+    driverId: '3',
+    driverName: 'Bác sĩ / Tài xế Hùng',
+    driverPhone: '0988.115.115',
+    vehicleId: '1042',
+    vehiclePlate: '29A-115.88',
+    providerId: '2',
+    providerName: 'Bệnh viện Cấp Cứu 115',
+    hospitalName: 'Bệnh viện Bạch Mai (Khoa Cấp Cứu A9)',
+    hospitalAddress: '78 Giải Phóng, Phương Mai, Đống Đa, Hà Nội',
+    status: 'COMPLETED',
+    priority: 'CRITICAL',
+    description: 'Nạn nhân bị đau tim co thắt ngực tại nhà, khó thở nghiêm trọng',
+    injury: 'Cơn đau thắt ngực cấp tính - Hồi sức tim phổi thành công',
+    patientName: 'Trần Thị Thu',
+    patientPhone: '0912.345.678',
+    victimName: 'Trần Thị Thu',
+    victimPhone: '0912.345.678',
+    victimAddress: '45 Tây Sơn, Quang Trung, Đống Đa, Hà Nội',
+    pickupAddress: '45 Tây Sơn, Quang Trung, Đống Đa, Hà Nội',
+    pickupLocation: { lat: 21.0125, lng: 105.8210 },
+    distanceKm: 2.8,
+    estimatedEtaMin: 0,
+    startTime: new Date(Date.now() - 7200000).toISOString(),
+    arrivedSceneTime: new Date(Date.now() - 6600000).toISOString(),
+    startTransportTime: new Date(Date.now() - 5400000).toISOString(),
+    arrivedHospitalTime: new Date(Date.now() - 4200000).toISOString(),
+    completedTime: new Date(Date.now() - 3600000).toISOString(),
+    createdAt: new Date(Date.now() - 7500000).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: 'DM-099',
+    callId: 'call-650',
+    emergencyCallId: 'call-650',
+    driverId: '3',
+    driverName: 'Bác sĩ / Tài xế Hùng',
+    driverPhone: '0988.115.115',
+    vehicleId: '1042',
+    vehiclePlate: '29A-115.88',
+    status: 'COMPLETED',
+    priority: 'MEDIUM',
+    description: 'Bỏng nước sôi cấp độ 2 tại quán ăn',
+    patientName: 'Lê Hoàng Long',
+    patientPhone: '0903.111.222',
+    victimAddress: '88 Thái Hà, Trung Liệt, Đống Đa, Hà Nội',
+    distanceKm: 1.8,
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    completedTime: new Date(Date.now() - 82800000).toISOString(),
+  },
 ];
 
 let MOCK_DRIVER_RESOURCE: DriverResource = {
@@ -458,32 +564,125 @@ class ApiService {
       } as T;
     }
 
-    // --- DISPATCH MISSION (driver) MOCK ENDPOINTS ---
+    // --- DRIVER - MISSION MOCK ENDPOINTS ---
+    // POST /dispatch-missions/{id}/accept
+    if (/^\/dispatch-missions\/[^/]+\/accept$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'ACCEPTED';
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'ACCEPTED', updatedAt: new Date().toISOString() } as T;
+    }
+
+    // POST /dispatch-missions/{id}/reject
+    if (/^\/dispatch-missions\/[^/]+\/reject$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'REJECTED';
+        mission.updatedAt = new Date().toISOString();
+      }
+      return { success: true, message: 'Đã từ chối nhiệm vụ', id } as T;
+    }
+
+    // POST /dispatch-missions/{id}/start
+    if (/^\/dispatch-missions\/[^/]+\/start$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'EN_ROUTE_TO_SCENE';
+        mission.startTime = new Date().toISOString();
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'EN_ROUTE_TO_SCENE', startTime: new Date().toISOString() } as T;
+    }
+
+    // POST /dispatch-missions/{id}/arrive-scene
+    if (/^\/dispatch-missions\/[^/]+\/arrive-scene$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'ARRIVED_SCENE';
+        mission.arrivedSceneTime = new Date().toISOString();
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'ARRIVED_SCENE', arrivedSceneTime: new Date().toISOString() } as T;
+    }
+
+    // POST /dispatch-missions/{id}/start-transport
+    if (/^\/dispatch-missions\/[^/]+\/start-transport$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'TRANSPORTING';
+        mission.startTransportTime = new Date().toISOString();
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'TRANSPORTING', startTransportTime: new Date().toISOString() } as T;
+    }
+
+    // POST /dispatch-missions/{id}/arrive-hospital
+    if (/^\/dispatch-missions\/[^/]+\/arrive-hospital$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'ARRIVED_HOSPITAL';
+        mission.arrivedHospitalTime = new Date().toISOString();
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'ARRIVED_HOSPITAL', arrivedHospitalTime: new Date().toISOString() } as T;
+    }
+
+    // POST /dispatch-missions/{id}/complete
+    if (/^\/dispatch-missions\/[^/]+\/complete$/.test(path) && options.method === 'POST') {
+      const id = path.split('/')[2];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(id));
+      if (mission) {
+        mission.status = 'COMPLETED';
+        mission.completedTime = new Date().toISOString();
+        mission.updatedAt = new Date().toISOString();
+        return mission as T;
+      }
+      return { id, status: 'COMPLETED', completedTime: new Date().toISOString() } as T;
+    }
+
     // GET /dispatch-missions/me/active - Lấy mission active của driver hiện tại
     if (path === '/dispatch-missions/me/active') {
-      // Giả lập: có 1 mission demo đang chờ
-      return {
-        id: `DM-${Date.now() % 100000}`,
-        status: 'ASSIGNED',
-        priority: 'HIGH',
-        victim: {
-          name: 'Nguyễn Văn A',
-          phone: '0987654321',
-          address: '12 Chùa Bộc, Đống Đa, Hà Nội',
-          latitude: 21.0091,
-          longitude: 105.8247,
-        },
-        injury: 'Tai nạn giao thông - Chấn thương chân',
-        reporterName: 'Trần Thị B',
-        reportedAt: new Date(Date.now() - 120000).toISOString(),
-        estimatedDistanceKm: 1.2,
-        estimatedEtaMin: 4,
-      } as T;
+      const active = MOCK_DISPATCH_MISSIONS.find(m =>
+        m.status === 'ASSIGNED' ||
+        m.status === 'ACCEPTED' ||
+        m.status === 'STARTED' ||
+        m.status === 'EN_ROUTE_TO_SCENE' ||
+        m.status === 'ARRIVED_SCENE' ||
+        m.status === 'START_TRANSPORT' ||
+        m.status === 'TRANSPORTING' ||
+        m.status === 'ARRIVED_HOSPITAL'
+      );
+      return (active ? [active] : []) as T;
     }
+
+    // GET /dispatch-missions/me/{missionId} - Chi tiết mission
+    if (/^\/dispatch-missions\/me\/[^/]+$/.test(path)) {
+      const missionId = path.split('/')[3];
+      const mission = MOCK_DISPATCH_MISSIONS.find(m => String(m.id) === String(missionId)) || MOCK_DISPATCH_MISSIONS[0];
+      return mission as T;
+    }
+
+    // GET /dispatch-missions/me - Lịch sử missions của driver
+    if (path === '/dispatch-missions/me') {
+      return MOCK_DISPATCH_MISSIONS as T;
+    }
+
     // GET /dispatch-missions/{missionId}/tracking - Lấy tracking cho mission
     if (/^\/dispatch-missions\/[^/]+\/tracking$/.test(path)) {
       const missionId = path.split('/')[3];
-      // Use same simulated movement as calls
       const startLat = 21.0091 + 0.008;
       const startLng = 105.8247 + 0.006;
       const endLat = 21.0091;
@@ -899,7 +1098,96 @@ class ApiService {
     return { success: true };
   }
 
-  // --- 4. DISPATCH MISSION ---
+  // --- 4. DRIVER - MISSION (DRIVER MISSION API) ---
+
+  /**
+   * POST /dispatch-missions/{id}/accept: Chấp nhận nhiệm vụ
+   */
+  async acceptMission(id: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/accept`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/reject: Từ chối nhiệm vụ
+   */
+  async rejectMission(id: string | number, reason?: string): Promise<any> {
+    return await this.request(`/dispatch-missions/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(reason ? { reason } : {}),
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/start: Bắt đầu di chuyển đến hiện trường
+   */
+  async startMission(id: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/start`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/arrive-scene: Xác nhận đã đến hiện trường
+   */
+  async arriveScene(id: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/arrive-scene`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/start-transport: Bắt đầu vận chuyển bệnh nhân
+   */
+  async startTransport(id: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/start-transport`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/arrive-hospital: Xác nhận đã đến bệnh viện
+   */
+  async arriveHospital(id: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/arrive-hospital`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * POST /dispatch-missions/{id}/complete: Hoàn thành nhiệm vụ
+   */
+  async completeMission(id: string | number, notes?: string): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(notes ? { notes } : {}),
+    });
+  }
+
+  /**
+   * GET /dispatch-missions/me: Lịch sử nhiệm vụ của tài xế đang đăng nhập
+   */
+  async getMyMissions(): Promise<DispatchMission[]> {
+    return await this.request<DispatchMission[]>('/dispatch-missions/me');
+  }
+
+  /**
+   * GET /dispatch-missions/me/{missionId}: Chi tiết nhiệm vụ của tài xế
+   */
+  async getMyMission(missionId: string | number): Promise<DispatchMission> {
+    return await this.request<DispatchMission>(`/dispatch-missions/me/${missionId}`);
+  }
+
+  /**
+   * GET /dispatch-missions/me/active: Các nhiệm vụ đang hoạt động của tài xế
+   */
+  async getMyActiveMissions(): Promise<DispatchMission[]> {
+    const res = await this.request<DispatchMission[] | DispatchMission>('/dispatch-missions/me/active');
+    if (!res) return [];
+    if (Array.isArray(res)) return res;
+    return [res];
+  }
 
   async createDispatchMission(data: any) {
     return await this.request('/dispatch-missions', {
