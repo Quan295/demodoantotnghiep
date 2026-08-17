@@ -56,11 +56,13 @@ export default function TrackingScreen() {
     }).start();
   }, [pulseAnim, slideAnim]);
 
+  const isNumericCallId = !!(callId && /^\d+$/.test(String(callId).trim()));
+
   // 1. Initial load for call details and call status (once on mount)
   useEffect(() => {
     let cancelled = false;
     const fetchInitialCallInfo = async () => {
-      if (!callId) {
+      if (!isNumericCallId || !callId) {
         setLoadingInitial(false);
         return;
       }
@@ -86,7 +88,7 @@ export default function TrackingScreen() {
 
     fetchInitialCallInfo();
     return () => { cancelled = true; };
-  }, [callId]);
+  }, [callId, isNumericCallId]);
 
   // 2. Poll Tracking (GET /calls/{callId}/tracking) every 4 seconds
   useEffect(() => {
@@ -94,7 +96,7 @@ export default function TrackingScreen() {
     let interval: ReturnType<typeof setInterval> | null = null;
 
     const pollTracking = async () => {
-      if (!callId) return;
+      if (!isNumericCallId || !callId) return;
       try {
         const res: CallTrackingResponse = await api.getCallTracking(callId);
         if (cancelled || !res) return;
