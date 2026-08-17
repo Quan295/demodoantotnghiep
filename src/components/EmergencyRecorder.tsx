@@ -5,7 +5,7 @@ import {
   useAudioRecorder,
   useAudioRecorderState,
 } from 'expo-audio';
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -32,16 +32,16 @@ export function EmergencyRecorder({
 }: EmergencyRecorderProps) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
-  const permissionRequested = useRef(false);
+  const isCleaningUp = useRef(false);
 
-  // Đồng bộ duration từ recorder state lên parent mỗi khi thay đổi
+  // 1. Đồng bộ duration từ recorder state lên parent
   useEffect(() => {
-    if (recorderState.durationMillis !== durationMillis) {
+    if (recorderState.durationMillis !== durationMillis && recorderState.durationMillis > 0) {
       onDurationChange(recorderState.durationMillis);
     }
   }, [recorderState.durationMillis, durationMillis, onDurationChange]);
 
-  // Đồng bộ: nếu recorder vừa dừng và có uri → đẩy lên parent (đánh dấu RECORDED)
+  // 2. Đồng bộ: nếu recorder vừa dừng và có uri → cập nhật parent
   useEffect(() => {
     if (!recorderState.isRecording && recorder.uri && status === 'recording') {
       onAudioUriChange(recorder.uri);
@@ -49,78 +49,121 @@ export function EmergencyRecorder({
     }
   }, [recorderState.isRecording, recorder.uri, status, onAudioUriChange, onStatusChange]);
 
-  // Mở app → yêu cầu quyền mic + set audio mode
+  // 3. Cleanup khi unmount: Đảm bảo nhả microphone ngay lập tức khi rời màn hình
   useEffect(() => {
-    if (permissionRequested.current) return;
-    permissionRequested.current = true;
-    const prepare = async () => {
+    return () => {
+      isCleaningUp.current = true;
       try {
-        const permission = await AudioModule.requestRecordingPermissionsAsync();
-        if (!permission.granted) {
-          Alert.alert(
-            'Thiếu quyền Microphone',
-            'Bạn cần cấp quyền ghi âm để sử dụng tính năng gọi cấp cứu bằng giọng nói.'
-          );
-          onStatusChange('error');
-          return;
+        if (recorder.isRecording) {
+          recorder.stop();
         }
-        await setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-        });
-      } catch (e: any) {
-        console.error('[Recorder] prepare error:', e?.message || e);
-        // Web/nguồn khác không hỗ trợ → tiếp tục, báo lỗi khi người dùng nhấn ghi âm
+      } catch (e) {
+        console.warn('[Recorder] Cleanup stop warning:', e);
       }
     };
-    prepare();
-  }, [onStatusChange]);
+  }, [recorder]);
 
+  // Bắt đầu ghi âm
   const startRecording = async () => {
     if (disabled) return;
     try {
       onStatusChange('preparing');
       onAudioUriChange(null);
       onDurationChange(0);
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
+
+      // Xin quyền Microphone
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Thiếu quyền Microphone',
+          'Bạn cần cấp quyền Microphone để ghi âm tình trạng khẩn cấp.'
+        );
+        onStatusChange('error');
+        return;
+      }
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+
+      // Nếu recorder đang chạy dở, stop trước khi chuẩn bị phiên mới
+      if (recorderState.isRecording || recorder.isRecording) {
+        try {
+          await recorder.stop();
+        } catch {}
+      }
+
+      // Chuẩn bị ghi âm (nếu đã chuẩn bị sẵn từ trước thì catch và tiếp tục record)
+      try {
+        await recorder.prepareToRecordAsync();
+      } catch (prepErr: any) {
+        console.log('[Recorder] prepareToRecordAsync already prepared/handled:', prepErr?.message);
+      }
+
       recorder.record();
       onStatusChange('recording');
     } catch (e: any) {
       console.error('[Recorder] start error:', e?.message || e);
-      Alert.alert('Không thể ghi âm', e?.message || 'Vui lòng kiểm tra quyền microphone');
+      Alert.alert('Không thể ghi âm', e?.message || 'Vui lòng kiểm tra quyền microphone và thử lại');
       onStatusChange('error');
     }
   };
 
+  // Dừng ghi âm
   const stopRecording = async () => {
     if (disabled) return;
     try {
-      await recorder.stop();
-      const uri = recorder.uri;
-      if (!uri) {
-        throw new Error('Không tạo được file ghi âm');
+      if (recorderState.isRecording || recorder.isRecording || status === 'recording') {
+        try {
+          await recorder.stop();
+        } catch (stopErr) {
+          console.warn('[Recorder] stop inner warning:', stopErr);
+        }
       }
-      onAudioUriChange(uri);
-      onStatusChange('recorded');
+
+      const uri = recorder.uri;
+      if (uri) {
+        onAudioUriChange(uri);
+        onStatusChange('recorded');
+      } else {
+        // Fallback kiểm tra lại sau khi state native đồng bộ
+        setTimeout(() => {
+          if (recorder.uri) {
+            onAudioUriChange(recorder.uri);
+          }
+          onStatusChange('recorded');
+        }, 150);
+      }
     } catch (e: any) {
       console.error('[Recorder] stop error:', e?.message || e);
-      Alert.alert('Lỗi dừng ghi âm', e?.message || 'Vui lòng thử lại');
-      onStatusChange('error');
+      if (recorder.uri) {
+        onAudioUriChange(recorder.uri);
+        onStatusChange('recorded');
+      } else {
+        onStatusChange('recorded');
+      }
     }
   };
 
-  const resetRecording = () => {
+  // Hủy / Làm lại
+  const resetRecording = async () => {
     if (disabled) return;
+    try {
+      if (recorderState.isRecording || recorder.isRecording) {
+        await recorder.stop();
+      }
+    } catch {}
     onAudioUriChange(null);
     onDurationChange(0);
     onStatusChange('idle');
   };
 
+  const isCurrentlyRecording = recorderState.isRecording || status === 'recording';
+
   const seconds = Math.floor(Math.max(0, durationMillis) / 1000);
   const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
   const ss = (seconds % 60).toString().padStart(2, '0');
-  const sizeMB = (recorderState.sizeBytes ?? 0) / (1024 * 1024);
 
   return (
     <View style={styles.wrapper}>
@@ -134,23 +177,20 @@ export function EmergencyRecorder({
           <Text style={styles.durationText}>
             <Ionicons name="timer-outline" size={14} color="#6b7280" /> {mm}:{ss}
           </Text>
-          {recorderState.sizeBytes > 0 && status === 'recorded' && (
-            <Text style={styles.sizeText}>{sizeMB.toFixed(2)} MB</Text>
-          )}
         </View>
       </View>
 
-      {status === 'recording' && (
+      {isCurrentlyRecording && (
         <View style={styles.recordingBar}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingHint}>Đang ghi âm... nhấn Dừng để kết thúc</Text>
+          <Text style={styles.recordingHint}>Đang ghi âm... Nhấn nút "Dừng" bên dưới để hoàn tất</Text>
         </View>
       )}
 
       {status === 'recorded' && audioUri && (
         <View style={styles.recordedHint}>
           <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-          <Text style={styles.recordedHintText}>Đã ghi xong. Nhấn Gửi để phân tích AI</Text>
+          <Text style={styles.recordedHintText}>Đã ghi xong bản ghi âm. Nhấn "GỬI GHI ÂM CẤP CỨU" bên dưới</Text>
         </View>
       )}
 
@@ -158,7 +198,7 @@ export function EmergencyRecorder({
         <View style={styles.recordedHint}>
           <Ionicons name="alert-circle" size={16} color="#ef4444" />
           <Text style={[styles.recordedHintText, { color: '#ef4444' }]}>
-            Lỗi ghi âm. Hãy kiểm tra quyền microphone.
+            Lỗi ghi âm. Vui lòng kiểm tra quyền microphone và thử lại.
           </Text>
         </View>
       )}
@@ -169,7 +209,7 @@ export function EmergencyRecorder({
             <ActivityIndicator color="#FFF" />
             <Text style={styles.recordBtnText}>Chuẩn bị...</Text>
           </View>
-        ) : status === 'recording' ? (
+        ) : isCurrentlyRecording ? (
           <TouchableOpacity
             style={[styles.recordBtn, styles.recordBtnStop]}
             onPress={stopRecording}
@@ -177,7 +217,7 @@ export function EmergencyRecorder({
             activeOpacity={0.85}
           >
             <View style={styles.stopSquare} />
-            <Text style={styles.recordBtnText}>Dừng</Text>
+            <Text style={styles.recordBtnText}>Dừng ghi âm</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -188,7 +228,7 @@ export function EmergencyRecorder({
           >
             <Ionicons name="mic" size={20} color="#FFF" />
             <Text style={styles.recordBtnText}>
-              {status === 'recorded' || audioUri ? 'Ghi lại' : 'Bắt đầu ghi âm'}
+              {status === 'recorded' || audioUri ? 'Ghi âm lại' : 'Bắt đầu ghi âm'}
             </Text>
           </TouchableOpacity>
         )}
@@ -214,10 +254,11 @@ function getStatusLabel(s: RecorderStatus) {
     case 'idle': return 'Sẵn sàng';
     case 'preparing': return 'Chuẩn bị';
     case 'recording': return 'Đang ghi';
-    case 'recorded': return 'Đã ghi';
+    case 'recorded': return 'Đã ghi xong';
     case 'error': return 'Lỗi';
   }
 }
+
 function getStatusPillStyle(s: RecorderStatus) {
   switch (s) {
     case 'recording': return { backgroundColor: '#fee2e2' };
@@ -227,6 +268,7 @@ function getStatusPillStyle(s: RecorderStatus) {
     default: return { backgroundColor: '#e0f2fe' };
   }
 }
+
 function getStatusTextStyle(s: RecorderStatus) {
   switch (s) {
     case 'recording': return { color: '#991b1b' };
@@ -255,9 +297,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statusPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   statusText: {
     fontSize: 12,
@@ -267,23 +309,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   durationText: {
-    fontSize: 13,
-    color: '#374151',
-    fontWeight: '600',
-  },
-  sizeText: {
-    fontSize: 11,
-    color: '#6b7280',
-    marginTop: 2,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1f2937',
   },
   recordingBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
     backgroundColor: '#fef2f2',
+    padding: 10,
     borderRadius: 10,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
   },
   recordingDot: {
     width: 10,
@@ -292,79 +330,76 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
   },
   recordingHint: {
+    fontSize: 12,
     color: '#991b1b',
-    fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
+    flex: 1,
   },
   recordedHint: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
     backgroundColor: '#f0fdf4',
+    padding: 10,
     borderRadius: 10,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
   },
   recordedHintText: {
-    color: '#065f46',
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 12,
+    color: '#166534',
+    fontWeight: '600',
+    flex: 1,
   },
   actionRow: {
     flexDirection: 'row',
-    gap: 10,
     alignItems: 'center',
+    gap: 10,
   },
   recordBtn: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
     gap: 8,
   },
   recordBtnStart: {
-    backgroundColor: '#10b981',
-    shadowColor: '#10b981',
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
+    backgroundColor: '#ef4444',
   },
   recordBtnStop: {
-    backgroundColor: '#ef4444',
-    shadowColor: '#ef4444',
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
+    backgroundColor: '#1f2937',
   },
   recordBtnDisabled: {
-    opacity: 0.5,
+    backgroundColor: '#9ca3af',
   },
   recordBtnText: {
     color: '#FFF',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
   },
   stopSquare: {
-    width: 16,
-    height: 16,
-    borderRadius: 3,
-    backgroundColor: '#FFF',
+    width: 12,
+    height: 12,
+    backgroundColor: '#ef4444',
+    borderRadius: 2,
   },
   secondaryBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    gap: 6,
   },
   secondaryBtnText: {
-    color: '#374151',
-    fontSize: 14,
+    color: '#4b5563',
+    fontSize: 13,
     fontWeight: '600',
   },
 });

@@ -811,7 +811,6 @@ export default function SOSScreen() {
                           pathname: '/(citizen)/tracking',
                           params: {
                             id: String(selectedCallId),
-                            missionId: String(selectedCallId),
                           },
                         });
                       }}
