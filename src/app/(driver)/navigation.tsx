@@ -66,14 +66,7 @@ export default function NavigationScreen() {
       if (resMission.status === 'fulfilled' && resMission.value) {
         setMission(resMission.value);
       } else {
-        // Create minimum structure from route params if API doesn't return full object
-        setMission({
-          id: missionId,
-          requestId: requestId || missionId,
-          resourceId: '2',
-          destinationName: initialDestination || 'Điểm đến yêu cầu cấp cứu',
-          status: 'ACCEPTED',
-        });
+        setLoadError('Không thể tải thông tin nhiệm vụ từ máy chủ');
       }
 
       if (resResource.status === 'fulfilled' && resResource.value) {
@@ -283,12 +276,20 @@ export default function NavigationScreen() {
         <Ionicons name="alert-circle-outline" size={48} color="#EF4444" />
         <Text style={styles.errorTitle}>Lỗi tải nhiệm vụ</Text>
         <Text style={styles.errorSubtitle}>{loadError || 'Không tìm thấy dữ liệu nhiệm vụ'}</Text>
-        <TouchableOpacity
-          style={styles.backBtn}
-          onPress={() => router.replace('/(driver)/dashboard')}
-        >
-          <Text style={styles.backBtnText}>Quay Về Màn Hình Chính</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+          <TouchableOpacity
+            style={[styles.backBtn, { backgroundColor: '#10B981', flex: 1 }]}
+            onPress={loadMissionDetails}
+          >
+            <Text style={styles.backBtnText}>Thử Lại</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.backBtn, { backgroundColor: '#334155', flex: 1 }]}
+            onPress={() => router.replace('/(driver)/dashboard')}
+          >
+            <Text style={styles.backBtnText}>Quay Về</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }

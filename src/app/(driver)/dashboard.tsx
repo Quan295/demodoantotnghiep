@@ -432,19 +432,21 @@ export default function DriverDashboard() {
     try {
       console.log('[DriverDashboard] Calling POST /dispatch-missions/{id}/accept:', missionId);
       await api.acceptMission(missionId);
-    } catch (e) {
-      console.warn('[DriverDashboard] acceptMission error:', e);
-    }
 
-    router.push({
-      pathname: '/(driver)/navigation',
-      params: {
-        missionId: String(missionId),
-        dispatchMissionId: String(missionId),
-        requestId: String(activeMission.requestId || ''),
-        destinationName: activeMission.destinationName || '',
-      },
-    });
+      router.push({
+        pathname: '/(driver)/navigation',
+        params: {
+          missionId: String(missionId),
+          dispatchMissionId: String(missionId),
+          requestId: String(activeMission.requestId || ''),
+          destinationName: activeMission.destinationName || '',
+        },
+      });
+    } catch (e: any) {
+      console.error('[DriverDashboard] acceptMission error:', e);
+      Alert.alert('Không thể nhận nhiệm vụ', e?.message || 'Vui lòng thử lại');
+      fetchActiveMissions();
+    }
   };
 
   // POST /dispatch-missions/{id}/reject

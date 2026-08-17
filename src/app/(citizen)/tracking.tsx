@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Animated,
   Linking,
@@ -9,11 +9,12 @@ import {
   TouchableOpacity,
   View,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { api } from '@/services/api';
-import { CallStatusResponse, EmergencyCall, LatLng, TrackingUpdate } from '@/types';
+import { CallStatusResponse, CallTrackingResponse, EmergencyCall, LatLng } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
 type CaseStatus = 'PENDING' | 'DISPATCHED' | 'EN_ROUTE' | 'ARRIVED' | 'COMPLETED';
@@ -25,8 +26,6 @@ export default function TrackingScreen() {
   const victimLat = params.lat ? parseFloat(params.lat as string) : 21.0091;
   const victimLng = params.lng ? parseFloat(params.lng as string) : 105.8247;
   const callId = params.id as string | undefined;
-  const missionId = (params.missionId as string) || (params.dispatchMissionId as string) || callId;
-  const simId = params.simulationId as string | undefined;
 
   const [status, setStatus] = useState<CaseStatus>('PENDING');
   const [eta, setEta] = useState<number>(4);
@@ -35,7 +34,8 @@ export default function TrackingScreen() {
   const [ambulancePos, setAmbulancePos] = useState<LatLng | undefined>(undefined);
   const [callDetail, setCallDetail] = useState<EmergencyCall | null>(null);
   const [callStatusData, setCallStatusData] = useState<CallStatusResponse | null>(null);
-  const [trackUpdate, setTrackUpdate] = useState<TrackingUpdate | null>(null);
+  const [trackingData, setTrackingData] = useState<CallTrackingResponse | null>(null);
+  const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
 
   const slideAnim = useRef(new Animated.Value(400)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -56,85 +56,14 @@ export default function TrackingScreen() {
     }).start();
   }, [pulseAnim, slideAnim]);
 
-  // Polling tracking updates (GET /calls/{id}/tracking) & Call Status (GET /calls/{id}/status)
+  // 1. Initial load for call details and call status (once on mount)
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
-
-    const poll = async () => {
-      try {
-        let update: TrackingUpdate | null = null;
-        if (callId) {
-          try {
-            update = await api.getCallTracking(callId);
-          } catch {
-            if (simId) update = await api.getSimulationTracking(simId);
-            else if (missionId) update = await api.getSimulationTrackingByMission(missionId);
-          }
-        } else if (simId) {
-          update = await api.getSimulationTracking(simId);
-        } else if (missionId) {
-          update = await api.getSimulationTrackingByMission(missionId);
-        }
-
-        if (!update || cancelled) return;
-        setTrackUpdate(update);
-
-        const simHasLocation =
-          update.currentLocation &&
-          (update.currentLocation.lat !== 0 || update.currentLocation.lng !== 0);
-
-        if (simHasLocation) {
-          setAmbulancePos(update.currentLocation);
-        }
-
-        if (typeof update.estimatedTimeArrival === 'number') {
-          setEta(Math.max(0, Math.ceil(update.estimatedTimeArrival / 60)));
-        }
-        if (typeof update.distanceTraveled === 'number') {
-          setDistance(Math.max(0, 1.2 - update.distanceTraveled));
-        }
-        if (typeof update.progress === 'number') {
-          setProgress(update.progress);
-        }
-
-        // Map status to UI state
-        switch (update.status) {
-          case 'RUNNING':
-            setStatus('EN_ROUTE');
-            if (!simHasLocation) {
-              setAmbulancePos({
-                lat: victimLat + 0.004,
-                lng: victimLng + 0.003,
-              });
-            }
-            break;
-          case 'COMPLETED':
-          case 'STOPPED':
-            setStatus('ARRIVED');
-            setAmbulancePos({ lat: victimLat, lng: victimLng });
-            setEta(0);
-            setDistance(0);
-            setProgress(100);
-            break;
-          case 'CREATED':
-          case 'PAUSED':
-          default:
-            if (simHasLocation) {
-              setStatus('EN_ROUTE');
-            } else {
-              setStatus('PENDING');
-            }
-            break;
-        }
-      } catch (e) {
-        console.warn('[CitizenTracking] Tracking poll warning:', e);
+    const fetchInitialCallInfo = async () => {
+      if (!callId) {
+        setLoadingInitial(false);
+        return;
       }
-    };
-
-    // Fetch call details & status
-    const fetchCallInfo = async () => {
-      if (!callId) return;
       try {
         const [detail, statusRes] = await Promise.allSettled([
           api.getCallDetails(callId),
@@ -144,82 +73,132 @@ export default function TrackingScreen() {
         if (cancelled) return;
         if (detail.status === 'fulfilled' && detail.value) {
           setCallDetail(detail.value);
-          const stUpper = (detail.value.status || '').toUpperCase();
-          if (stUpper === 'ASSIGNED' || stUpper === 'DISPATCHED') {
-            setStatus(prev => (prev === 'PENDING' ? 'DISPATCHED' : prev));
-          } else if (stUpper === 'EN_ROUTE' || stUpper === 'RUNNING') {
-            setStatus('EN_ROUTE');
-          } else if (stUpper === 'ARRIVED' || stUpper === 'ARRIVED_SCENE') {
-            setStatus('ARRIVED');
-          } else if (stUpper === 'COMPLETED') {
-            setStatus('COMPLETED');
-          }
         }
         if (statusRes.status === 'fulfilled' && statusRes.value) {
           setCallStatusData(statusRes.value);
         }
       } catch (e) {
-        console.warn('[CitizenTracking] Failed to fetch call details:', e);
+        console.warn('[CitizenTracking] Initial call info load error:', e);
+      } finally {
+        if (!cancelled) setLoadingInitial(false);
       }
     };
 
-    fetchCallInfo();
-    poll();
-    interval = setInterval(() => {
-      poll();
-      fetchCallInfo();
-    }, 2000);
+    fetchInitialCallInfo();
+    return () => { cancelled = true; };
+  }, [callId]);
+
+  // 2. Poll Tracking (GET /calls/{callId}/tracking) every 4 seconds
+  useEffect(() => {
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
+
+    const pollTracking = async () => {
+      if (!callId) return;
+      try {
+        const res: CallTrackingResponse = await api.getCallTracking(callId);
+        if (cancelled || !res) return;
+        setTrackingData(res);
+
+        // Ambulance Location
+        if (typeof res.resourceLatitude === 'number' && typeof res.resourceLongitude === 'number') {
+          setAmbulancePos({
+            lat: res.resourceLatitude,
+            lng: res.resourceLongitude,
+          });
+        } else if (res.tracking?.currentLocation) {
+          setAmbulancePos(res.tracking.currentLocation);
+        }
+
+        // ETA & Progress
+        if (typeof res.tracking?.estimatedTimeArrival === 'number') {
+          setEta(Math.max(0, Math.ceil(res.tracking.estimatedTimeArrival / 60)));
+        }
+        if (typeof res.tracking?.distanceTraveled === 'number') {
+          setDistance(Math.max(0, 1.2 - res.tracking.distanceTraveled));
+        }
+        if (typeof res.tracking?.progress === 'number') {
+          setProgress(res.tracking.progress);
+        }
+
+        // Status mapping
+        const currentSt = (res.missionStatus || res.dispatchRequestStatus || res.callStatus || '').toUpperCase();
+        if (currentSt === 'DISPATCHED' || currentSt === 'ASSIGNED') {
+          setStatus('DISPATCHED');
+        } else if (
+          currentSt === 'ACCEPTED' ||
+          currentSt === 'EN_ROUTE' ||
+          currentSt === 'RUNNING' ||
+          currentSt === 'TRANSPORTING'
+        ) {
+          setStatus('EN_ROUTE');
+          if (!res.resourceLatitude) {
+            setAmbulancePos({ lat: victimLat + 0.004, lng: victimLng + 0.003 });
+          }
+        } else if (
+          currentSt === 'ARRIVED_SCENE' ||
+          currentSt === 'ARRIVED' ||
+          currentSt === 'ARRIVED_HOSPITAL'
+        ) {
+          setStatus('ARRIVED');
+          setAmbulancePos({ lat: victimLat, lng: victimLng });
+          setEta(0);
+          setDistance(0);
+          setProgress(100);
+        } else if (currentSt === 'COMPLETED') {
+          setStatus('COMPLETED');
+          setEta(0);
+          setDistance(0);
+          setProgress(100);
+        } else {
+          setStatus('PENDING');
+        }
+      } catch (e) {
+        console.warn('[CitizenTracking] Tracking poll error:', e);
+      }
+    };
+
+    pollTracking();
+    interval = setInterval(pollTracking, 4000);
 
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [simId, missionId, callId]);
+  }, [callId, victimLat, victimLng]);
 
   const driverPhone =
     callStatusData?.assignedUnit?.driverPhone ||
     callDetail?.assignedDriverPhone ||
-    '0988.115.115';
+    null;
 
   const driverName =
     callStatusData?.assignedUnit?.driverName ||
     callDetail?.assignedDriverName ||
-    'Bác sĩ / Tài xế Hùng';
+    'Tài xế xe cứu thương 115';
 
-  const extractUnitPlate = () => {
-    const unit = callStatusData?.assignedUnit;
-    const unitExt: any = typeof unit?.extended_attributes === 'string'
-      ? (() => { try { return JSON.parse(unit.extended_attributes); } catch { return {}; } })()
-      : unit?.extended_attributes || unit?.extendedAttributes;
-
-    const callExt: any = typeof callDetail?.extended_attributes === 'string'
-      ? (() => { try { return JSON.parse(callDetail.extended_attributes); } catch { return {}; } })()
-      : callDetail?.extended_attributes || callDetail?.extendedAttributes;
-
+  const extractUnitBadge = () => {
     return (
-      unit?.vehiclePlate ||
-      unitExt?.license_plate ||
-      unitExt?.licensePlate ||
-      unitExt?.plate_number ||
-      callExt?.license_plate ||
-      callExt?.licensePlate ||
+      trackingData?.resourceCode ||
+      (trackingData?.resourceId ? `UNIT #${trackingData.resourceId}` : null) ||
+      callStatusData?.assignedUnit?.vehiclePlate ||
       callDetail?.assignedVehiclePlate ||
-      '29A-115.88'
+      'Xe Cứu Thương 115'
     );
   };
 
-  const vehiclePlate = extractUnitPlate();
-
-  const hospitalName =
-    callStatusData?.assignedUnit?.hospitalName ||
-    callDetail?.assignedHospital ||
-    'Bệnh viện Cấp Cứu 115 - Chi nhánh Đống Đa';
+  const vehicleBadge = extractUnitBadge();
 
   const handleCallDriver = () => {
-    Linking.openURL(`tel:${driverPhone}`).catch(() => {
-      Alert.alert('Liên hệ tài xế', `Số điện thoại tài xế cứu thương: ${driverPhone}`);
-    });
+    if (driverPhone) {
+      Linking.openURL(`tel:${driverPhone}`).catch(() => {
+        Alert.alert('Liên hệ tài xế', `Số điện thoại tài xế cứu thương: ${driverPhone}`);
+      });
+    } else {
+      Linking.openURL('tel:115').catch(() => {
+        Alert.alert('Tổng đài 115', 'Hotline Cấp cứu 115: 115');
+      });
+    }
   };
 
   const handleCall115 = () => {
@@ -297,11 +276,11 @@ export default function TrackingScreen() {
               {status === 'ARRIVED' || status === 'COMPLETED'
                 ? 'ĐÃ ĐẾN HIỆN TRƯỜNG'
                 : status === 'PENDING'
-                ? 'ĐANG TÌM XE...'
+                ? 'ĐANG ĐIỀU PHỐI XE...'
                 : `${eta} PHÚT (${distance.toFixed(1)} km)`}
             </Text>
 
-            {status !== 'PENDING' && status !== 'ARRIVED' && (
+            {status !== 'PENDING' && status !== 'ARRIVED' && status !== 'COMPLETED' && (
               <View style={styles.progressRow}>
                 <View style={styles.progressBarBg}>
                   <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%` }]} />
@@ -320,7 +299,7 @@ export default function TrackingScreen() {
         <View style={styles.timeline}>
           <TimelineItem
             title="1. Đã tiếp nhận yêu cầu cấp cứu"
-            time={callDetail?.createdAt ? new Date(callDetail.createdAt).toLocaleTimeString('vi-VN') : 'Vừa xong'}
+            time={callDetail?.createdAt ? new Date(callDetail.createdAt).toLocaleTimeString('vi-VN') : 'Đã ghi nhận'}
             status={status === 'PENDING' ? 'active' : 'done'}
             color={getStatusColor('PENDING')}
           />
@@ -328,16 +307,16 @@ export default function TrackingScreen() {
             title="2. Xe cứu thương đang di chuyển tới"
             time={
               status === 'EN_ROUTE' || status === 'DISPATCHED'
-                ? `Vận tốc: ${trackUpdate?.speed ? `${trackUpdate.speed.toFixed(0)} km/h` : '38 km/h'}`
+                ? `Đang trên đường đến`
                 : ''
             }
-            status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' ? 'done' : 'pending'}
+            status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' || status === 'COMPLETED' ? 'done' : 'pending'}
             color={getStatusColor('EN_ROUTE')}
           />
           <TimelineItem
-            title="3. Đã tiếp cận nạn nhân tại hiện trường"
-            time={status === 'ARRIVED' ? 'Đang sơ cứu' : ''}
-            status={status === 'ARRIVED' ? 'active' : 'pending'}
+            title="3. Đã tiếp cận hiện trường"
+            time={status === 'ARRIVED' || status === 'COMPLETED' ? 'Đang cấp cứu' : ''}
+            status={status === 'ARRIVED' || status === 'COMPLETED' ? 'active' : 'pending'}
             color={getStatusColor('ARRIVED')}
             isLast
           />
@@ -353,11 +332,11 @@ export default function TrackingScreen() {
             <View style={styles.driverNameRow}>
               <Text style={styles.driverName}>{driverName}</Text>
               <View style={styles.plateTag}>
-                <Text style={styles.plateTagText}>{vehiclePlate}</Text>
+                <Text style={styles.plateTagText}>{vehicleBadge}</Text>
               </View>
             </View>
             <Text style={styles.hospitalText} numberOfLines={1}>
-              <Ionicons name="business-outline" size={11} color="#94A3B8" /> {hospitalName}
+              <Ionicons name="shield-checkmark-outline" size={11} color="#94A3B8" /> Đội cấp cứu khẩn cấp 115
             </Text>
           </View>
 
@@ -448,9 +427,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 23, 42, 0.9)',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   livePulseDot: {
     width: 8,
@@ -460,18 +439,14 @@ const styles = StyleSheet.create({
   },
   topCallIdText: {
     color: '#F8FAFC',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
   emergency115Btn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
     backgroundColor: '#EF4444',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
   },
   emergency115Text: {
     color: '#FFF',
@@ -483,93 +458,84 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(15, 23, 42, 0.96)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 20,
-    elevation: 24,
+    backgroundColor: '#0F172A',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    gap: 12,
   },
   sheetHandle: {
-    width: 40,
+    width: 36,
     height: 4,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 4,
   },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
   },
   etaBlock: {
     flex: 1,
-    marginRight: 12,
   },
   etaLabel: {
     color: '#64748B',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.8,
   },
   etaValue: {
     color: '#F8FAFC',
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: '900',
     marginTop: 2,
   },
   progressRow: {
-    marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginTop: 6,
   },
   progressBarBg: {
     flex: 1,
-    height: 5,
-    backgroundColor: '#334155',
-    borderRadius: 3,
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
     backgroundColor: '#10B981',
-    borderRadius: 3,
+    borderRadius: 2,
   },
   progressPct: {
-    color: '#34D399',
+    color: '#10B981',
     fontSize: 10,
-    fontWeight: '900',
-    width: 32,
-    textAlign: 'right',
+    fontWeight: '800',
   },
   callDriverFab: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#10B981',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 6,
+    marginLeft: 12,
   },
   timeline: {
-    marginBottom: 16,
-    backgroundColor: 'rgba(30, 41, 59, 0.3)',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    paddingVertical: 6,
   },
   timelineItem: {
     flexDirection: 'row',
-    minHeight: 44,
+    minHeight: 36,
   },
   timelineLeft: {
-    width: 24,
     alignItems: 'center',
+    width: 20,
+    marginRight: 10,
   },
   timelineDot: {
     width: 10,
@@ -578,41 +544,40 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   timelineLine: {
-    width: 2,
     flex: 1,
-    marginVertical: 3,
+    width: 2,
+    marginVertical: 2,
   },
   timelineRight: {
     flex: 1,
-    marginLeft: 10,
+    justifyContent: 'center',
+    paddingBottom: 8,
   },
   timelineTitle: {
     fontSize: 12,
-    lineHeight: 16,
   },
   timelineTime: {
     color: '#94A3B8',
     fontSize: 10,
     marginTop: 2,
-    fontWeight: '500',
   },
   driverInfoCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    backgroundColor: 'rgba(30, 41, 59, 0.45)',
+    borderRadius: 14,
     padding: 12,
-    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 10,
   },
   driverAvatarCircle: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
     borderRadius: 12,
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 10,
   },
   driverDetails: {
     flex: 1,
@@ -624,11 +589,11 @@ const styles = StyleSheet.create({
   },
   driverName: {
     color: '#F8FAFC',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   plateTag: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -642,7 +607,6 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 10,
     marginTop: 2,
-    fontWeight: '500',
   },
   contactDriverBtn: {
     flexDirection: 'row',
@@ -650,14 +614,14 @@ const styles = StyleSheet.create({
     gap: 4,
     backgroundColor: 'rgba(16, 185, 129, 0.12)',
     paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderColor: 'rgba(16, 185, 129, 0.25)',
   },
   contactDriverText: {
     color: '#34D399',
     fontSize: 10,
-    fontWeight: '900',
+    fontWeight: '800',
   },
 });

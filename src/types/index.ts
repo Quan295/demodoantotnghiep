@@ -587,3 +587,23 @@ export interface TrackingUpdate {
   timestamp: string;
   status: AmbulanceSimulationStatus;
 }
+
+export interface CallTrackingResponse {
+  callId: number | string;
+  callStatus: string;
+
+  dispatchRequestId?: number | string | null;
+  dispatchRequestStatus?: string | null;
+
+  missionId?: number | string | null;
+  missionStatus?: string | null;
+
+  resourceId?: number | string | null;
+  resourceCode?: string | null;
+  resourceStatus?: string | null;
+
+  resourceLongitude?: number | null;
+  resourceLatitude?: number | null;
+
+  tracking?: TrackingUpdate | null;
+}

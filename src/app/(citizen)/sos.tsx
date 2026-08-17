@@ -133,6 +133,7 @@ export default function SOSScreen() {
 
     setLoading(true);
     try {
+      const sosKey = `sos-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       const payload = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
@@ -143,11 +144,15 @@ export default function SOSScreen() {
         description: description.trim() || 'Yêu cầu cứu hộ khẩn cấp 1-chạm (Location SOS)',
       };
 
-      console.log('[SOSScreen] Calling POST /calls/sos:', payload);
-      const callResult = await api.createSosCall(payload);
+      console.log('[SOSScreen] Calling POST /calls/sos with Idempotency-Key:', sosKey, payload);
+      const callResult = await api.createSosCall(payload, sosKey);
       setDescription('');
 
-      const callId = (callResult as any)?.id || `call_${Date.now()}`;
+      const callId = (callResult as any)?.callId ?? (callResult as any)?.id;
+      if (!callId) {
+        throw new Error('Máy chủ không trả về mã cuộc gọi (callId)');
+      }
+
       Alert.alert(
         'ĐÃ GỬI YÊU CẦU CẤP CỨU! 🚨',
         'Tín hiệu cấp cứu đã được chuyển đến trung tâm điều phối 115. Đội ngũ y tế đang được điều động khẩn cấp.',
@@ -161,7 +166,6 @@ export default function SOSScreen() {
                   lat: location.coords.latitude.toString(),
                   lng: location.coords.longitude.toString(),
                   id: String(callId),
-                  missionId: String(callId),
                 },
               });
             },
@@ -201,22 +205,29 @@ export default function SOSScreen() {
       }
 
       setFlowStatus('submitting');
-      const result = await api.createVoiceCall({
-        audioObjectKey: uploaded.objectKey,
-        location: {
+      const result = await api.createVoiceCall(
+        {
+          audioObjectKey: uploaded.objectKey,
+          location: {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          },
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
+          description: description.trim() || 'Cuộc gọi cấp cứu bằng giọng nói (Voice SOS)',
         },
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        description: description.trim() || 'Cuộc gọi cấp cứu bằng giọng nói (Voice SOS)',
-      });
+        key
+      );
 
       setFlowStatus('waiting_ai');
       await new Promise(resolve => setTimeout(resolve, 1500));
       setFlowStatus('success');
 
-      const callId = (result as any)?.id || `voice_${Date.now()}`;
+      const callId = (result as any)?.callId ?? (result as any)?.id;
+      if (!callId) {
+        throw new Error('Máy chủ không trả về mã cuộc gọi (callId)');
+      }
+
       Alert.alert(
         'GỬI CUỘC GỌI THÀNH CÔNG! 🎉',
         'AI và Điều phối viên 115 đã nhận bản ghi âm và đang điều phối xe cứu thương phù hợp nhất cho bạn.',
@@ -230,7 +241,6 @@ export default function SOSScreen() {
                   lat: location.coords.latitude.toString(),
                   lng: location.coords.longitude.toString(),
                   id: String(callId),
-                  missionId: String(callId),
                 },
               });
             },
@@ -635,7 +645,6 @@ export default function SOSScreen() {
                             lat,
                             lng,
                             id: String(item.id),
-                            missionId: String(item.id),
                           },
                         });
                       }}

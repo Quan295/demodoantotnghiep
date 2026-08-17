@@ -1,6 +1,7 @@
 import {
   AmbulanceSimulation,
   CallStatusResponse,
+  CallTrackingResponse,
   DispatchMission,
   DispatchMissionStatus,
   DriverLocationUpdatePayload,
@@ -1137,9 +1138,10 @@ class ApiService {
   /**
    * POST /calls/voice: Gọi cấp cứu bằng giọng nói
    */
-  async createVoiceCall(data: any): Promise<EmergencyCall> {
+  async createVoiceCall(data: any, idempotencyKey?: string): Promise<EmergencyCall> {
     return await this.request<EmergencyCall>('/calls/voice', {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(data),
     });
   }
@@ -1147,9 +1149,10 @@ class ApiService {
   /**
    * POST /calls/sos: Gửi định vị cấp cứu 1-chạm
    */
-  async createSosCall(data: any): Promise<EmergencyCall> {
+  async createSosCall(data: any, idempotencyKey?: string): Promise<EmergencyCall> {
     return await this.request<EmergencyCall>('/calls/sos', {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(data),
     });
   }
@@ -1168,8 +1171,8 @@ class ApiService {
   /**
    * GET /calls/{id}/tracking: Theo dõi yêu cầu và xe cấp cứu của tôi
    */
-  async getCallTracking(callId: string | number): Promise<TrackingUpdate> {
-    return await this.request<TrackingUpdate>(`/calls/${callId}/tracking`);
+  async getCallTracking(callId: string | number): Promise<CallTrackingResponse> {
+    return await this.request<CallTrackingResponse>(`/calls/${callId}/tracking`);
   }
 
   /**
@@ -1244,11 +1247,14 @@ class ApiService {
     const uploaded = await this.uploadRecording(audioUri, idempotencyKey);
 
     // Bước 2: tạo EmergencyCall. Backend lấy phoneNumber + reporterName từ JWT.
-    return await this.createVoiceCall({
-      audioObjectKey: uploaded.objectKey,
-      location: { latitude, longitude },
-      description: description?.trim() || undefined,
-    });
+    return await this.createVoiceCall(
+      {
+        audioObjectKey: uploaded.objectKey,
+        location: { latitude, longitude },
+        description: description?.trim() || undefined,
+      },
+      idempotencyKey
+    );
   }
 
   // --- 6. DISPATCH REQUESTS ---
