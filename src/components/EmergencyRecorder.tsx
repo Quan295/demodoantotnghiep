@@ -34,14 +34,14 @@ export function EmergencyRecorder({
   const recorderState = useAudioRecorderState(recorder);
   const isCleaningUp = useRef(false);
 
-  // 1. Đồng bộ duration từ recorder state lên parent
+  // 1. Đồng bộ thời gian ghi âm liên tục khi đang ghi
   useEffect(() => {
-    if (recorderState.durationMillis !== durationMillis && recorderState.durationMillis > 0) {
+    if (status === 'recording' && recorderState.durationMillis > 0) {
       onDurationChange(recorderState.durationMillis);
     }
-  }, [recorderState.durationMillis, durationMillis, onDurationChange]);
+  }, [recorderState.durationMillis, status, onDurationChange]);
 
-  // 2. Đồng bộ: nếu recorder vừa dừng và có uri → cập nhật parent
+  // 2. Đồng bộ: nếu recorder vừa dừng và có uri
   useEffect(() => {
     if (!recorderState.isRecording && recorder.uri && status === 'recording') {
       onAudioUriChange(recorder.uri);
@@ -49,7 +49,7 @@ export function EmergencyRecorder({
     }
   }, [recorderState.isRecording, recorder.uri, status, onAudioUriChange, onStatusChange]);
 
-  // 3. Cleanup khi unmount: Đảm bảo nhả microphone ngay lập tức khi rời màn hình
+  // 3. Cleanup khi unmount hoặc rời màn hình: Nhả microphone và Audio session
   useEffect(() => {
     return () => {
       isCleaningUp.current = true;
@@ -57,6 +57,7 @@ export function EmergencyRecorder({
         if (recorder.isRecording) {
           recorder.stop();
         }
+        setAudioModeAsync({ allowsRecording: false }).catch(() => {});
       } catch (e) {
         console.warn('[Recorder] Cleanup stop warning:', e);
       }
@@ -82,23 +83,24 @@ export function EmergencyRecorder({
         return;
       }
 
+      // Kích hoạt chế độ cho phép ghi âm
       await setAudioModeAsync({
         allowsRecording: true,
         playsInSilentMode: true,
       });
 
-      // Nếu recorder đang chạy dở, stop trước khi chuẩn bị phiên mới
+      // Nếu đang chạy dở, dừng phiên cũ trước
       if (recorderState.isRecording || recorder.isRecording) {
         try {
           await recorder.stop();
         } catch {}
       }
 
-      // Chuẩn bị ghi âm (nếu đã chuẩn bị sẵn từ trước thì catch và tiếp tục record)
+      // Chuẩn bị ghi âm an toàn
       try {
         await recorder.prepareToRecordAsync();
       } catch (prepErr: any) {
-        console.log('[Recorder] prepareToRecordAsync already prepared/handled:', prepErr?.message);
+        console.log('[Recorder] prepareToRecordAsync already prepared:', prepErr?.message);
       }
 
       recorder.record();
@@ -107,10 +109,13 @@ export function EmergencyRecorder({
       console.error('[Recorder] start error:', e?.message || e);
       Alert.alert('Không thể ghi âm', e?.message || 'Vui lòng kiểm tra quyền microphone và thử lại');
       onStatusChange('error');
+      try {
+        await setAudioModeAsync({ allowsRecording: false });
+      } catch {}
     }
   };
 
-  // Dừng ghi âm
+  // Dừng ghi âm: ngắt microphone và nhả quyền ghi âm
   const stopRecording = async () => {
     if (disabled) return;
     try {
@@ -122,12 +127,21 @@ export function EmergencyRecorder({
         }
       }
 
+      // Nhả chế độ ghi âm ngay lập tức để hệ thống tắt icon mic trên status bar
+      try {
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+      } catch (audioModeErr) {
+        console.warn('[Recorder] setAudioModeAsync release warning:', audioModeErr);
+      }
+
       const uri = recorder.uri;
       if (uri) {
         onAudioUriChange(uri);
         onStatusChange('recorded');
       } else {
-        // Fallback kiểm tra lại sau khi state native đồng bộ
         setTimeout(() => {
           if (recorder.uri) {
             onAudioUriChange(recorder.uri);
@@ -143,6 +157,9 @@ export function EmergencyRecorder({
       } else {
         onStatusChange('recorded');
       }
+      try {
+        await setAudioModeAsync({ allowsRecording: false });
+      } catch {}
     }
   };
 
@@ -153,13 +170,14 @@ export function EmergencyRecorder({
       if (recorderState.isRecording || recorder.isRecording) {
         await recorder.stop();
       }
+      await setAudioModeAsync({ allowsRecording: false });
     } catch {}
     onAudioUriChange(null);
     onDurationChange(0);
     onStatusChange('idle');
   };
 
-  const isCurrentlyRecording = recorderState.isRecording || status === 'recording';
+  const isCurrentlyRecording = status === 'recording' || recorderState.isRecording;
 
   const seconds = Math.floor(Math.max(0, durationMillis) / 1000);
   const mm = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -183,14 +201,14 @@ export function EmergencyRecorder({
       {isCurrentlyRecording && (
         <View style={styles.recordingBar}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingHint}>Đang ghi âm... Nhấn nút "Dừng" bên dưới để hoàn tất</Text>
+          <Text style={styles.recordingHint}>Đang ghi âm... Nhấn nút "Dừng ghi âm" khi nói xong</Text>
         </View>
       )}
 
       {status === 'recorded' && audioUri && (
         <View style={styles.recordedHint}>
           <Ionicons name="checkmark-circle" size={16} color="#10b981" />
-          <Text style={styles.recordedHintText}>Đã ghi xong bản ghi âm. Nhấn "GỬI GHI ÂM CẤP CỨU" bên dưới</Text>
+          <Text style={styles.recordedHintText}>Đã ghi xong ({mm}:{ss}). Bạn có thể gửi ngay hoặc ghi lại</Text>
         </View>
       )}
 
@@ -217,7 +235,7 @@ export function EmergencyRecorder({
             activeOpacity={0.85}
           >
             <View style={styles.stopSquare} />
-            <Text style={styles.recordBtnText}>Dừng ghi âm</Text>
+            <Text style={styles.recordBtnText}>DỪNG GHI ÂM</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
@@ -252,10 +270,10 @@ export function EmergencyRecorder({
 function getStatusLabel(s: RecorderStatus) {
   switch (s) {
     case 'idle': return 'Sẵn sàng';
-    case 'preparing': return 'Chuẩn bị';
-    case 'recording': return 'Đang ghi';
+    case 'preparing': return 'Chuẩn bị...';
+    case 'recording': return 'Đang ghi âm';
     case 'recorded': return 'Đã ghi xong';
-    case 'error': return 'Lỗi';
+    case 'error': return 'Lỗi ghi âm';
   }
 }
 
@@ -369,7 +387,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ef4444',
   },
   recordBtnStop: {
-    backgroundColor: '#1f2937',
+    backgroundColor: '#dc2626',
   },
   recordBtnDisabled: {
     backgroundColor: '#9ca3af',
@@ -377,13 +395,13 @@ const styles = StyleSheet.create({
   recordBtnText: {
     color: '#FFF',
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   stopSquare: {
-    width: 12,
-    height: 12,
-    backgroundColor: '#ef4444',
-    borderRadius: 2,
+    width: 14,
+    height: 14,
+    backgroundColor: '#FFF',
+    borderRadius: 3,
   },
   secondaryBtn: {
     flexDirection: 'row',
