@@ -7,10 +7,12 @@ import { scheduleOnRN } from 'react-native-worklets';
 const INITIAL_SCALE_FACTOR = Dimensions.get('screen').height / 90;
 const DURATION = 600;
 
+import { Platform } from 'react-native';
+
 export function AnimatedSplashOverlay() {
   const [visible, setVisible] = useState(true);
 
-  if (!visible) return null;
+  if (Platform.OS === 'web' || !visible) return null;
 
   const splashKeyframe = new Keyframe({
     0: {
