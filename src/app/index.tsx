@@ -44,6 +44,7 @@ export default function AuthScreen() {
   const [forgotPhone, setForgotPhone] = useState('');
   const [forgotOtp, setForgotOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [phoneVerificationToken, setPhoneVerificationToken] = useState('');
 
   const handleLogin = async () => {
     // Đảm bảo setLoading(false) LUÔN chạy trong mọi trường hợp
@@ -92,7 +93,7 @@ export default function AuthScreen() {
           break;
       }
       
-      console.log('[Login] Navigating to:', targetRoute);
+      console.log('[Login] Navigating to targetRoute:', targetRoute);
       // Wrap navigation in try-catch để lỗi router không làm kẹt loading
       try {
         router.replace(targetRoute);
@@ -142,7 +143,14 @@ export default function AuthScreen() {
   const handleVerifyOtp = async (phoneNumber: string, otpCode: string) => {
     try {
       setLoading(true);
-      await api.verifyOtp(phoneNumber, otpCode);
+      const res = await api.verifyOtp(phoneNumber, otpCode);
+      const rawData = (res as any)?.data ?? res;
+      const token = typeof rawData === 'string' 
+        ? rawData 
+        : (rawData?.verificationToken || rawData?.phoneVerificationToken || rawData?.token || '');
+      if (token) {
+        setPhoneVerificationToken(token);
+      }
       Alert.alert('Thành công', 'Xác minh OTP thành công');
       return true;
     } catch (error: any) {
@@ -190,6 +198,8 @@ export default function AuthScreen() {
         phoneNumber: registerPhone,
         email: registerEmail,
         otpCode: registerOtp,
+        verificationToken: phoneVerificationToken || registerOtp,
+        phoneVerificationToken: phoneVerificationToken || registerOtp,
       });
       Alert.alert('Thành công', 'Đăng ký tài khoản thành công! Vui lòng đăng nhập');
       resetAuthStates();
@@ -258,6 +268,7 @@ export default function AuthScreen() {
     setForgotPhone('');
     setForgotOtp('');
     setNewPassword('');
+    setPhoneVerificationToken('');
   };
 
   return (

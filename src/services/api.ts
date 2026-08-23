@@ -196,11 +196,25 @@ class ApiService {
     fullName: string;
     phoneNumber: string;
     email?: string;
-    otpCode: string;
+    otpCode?: string;
+    verificationToken?: string;
+    phoneVerificationToken?: string;
   }) {
+    const token = data.verificationToken || data.phoneVerificationToken || data.otpCode || '';
     return await this.request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        username: data.username,
+        password: data.password,
+        fullName: data.fullName,
+        phoneNumber: data.phoneNumber,
+        phone: data.phoneNumber,
+        email: data.email,
+        otpCode: data.otpCode,
+        verificationToken: token,
+        phoneVerificationToken: token,
+        otpVerificationToken: token,
+      }),
     });
   }
 
@@ -216,9 +230,14 @@ class ApiService {
   }
 
   async verifyOtp(phoneNumber: string, otpCode: string) {
-    return await this.request('/auth/verify-otp', {
+    return await this.request<{ data?: any; verificationToken?: string; token?: string; phoneVerificationToken?: string }>('/auth/verify-otp', {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber, otpCode }),
+      body: JSON.stringify({ 
+        phoneNumber,
+        identity: phoneNumber,
+        otpCode,
+        code: otpCode,
+      }),
     });
   }
 
