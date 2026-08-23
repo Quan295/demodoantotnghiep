@@ -111,7 +111,7 @@ export default function NavigationScreen() {
     setLoadingAction(true);
     try {
       await api.acceptMission(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'ACCEPTED', acceptedAt: new Date().toISOString() } : null));
+      await loadMissionDetails();
       Alert.alert('Thành Công', 'Đã chấp nhận nhiệm vụ điều phối.');
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể chấp nhận nhiệm vụ');
@@ -149,8 +149,8 @@ export default function NavigationScreen() {
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/start:', missionId);
-      const res = await api.startMission(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'EN_ROUTE', enRouteAt: new Date().toISOString() } : res));
+      await api.startMission(missionId);
+      await loadMissionDetails();
       Alert.alert('Đã Bắt Đầu Di Chuyển', 'Hệ thống đã cập nhật trạng thái xe đang trên đường đến hiện trường.');
     } catch (e: any) {
       Alert.alert('Lỗi', e?.message || 'Không thể bắt đầu nhiệm vụ');
@@ -165,8 +165,8 @@ export default function NavigationScreen() {
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/arrive-scene:', missionId);
-      const res = await api.arriveScene(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_SCENE', arrivedSceneAt: new Date().toISOString() } : res));
+      await api.arriveScene(missionId);
+      await loadMissionDetails();
       Alert.alert(
         'ĐÃ ĐẾN HIỆN TRƯỜNG! 🏥',
         'Vui lòng tiến hành sơ cứu, ổn định tình trạng bệnh nhân và đưa bệnh nhân lên xe.'
@@ -184,8 +184,8 @@ export default function NavigationScreen() {
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/start-transport:', missionId);
-      const res = await api.startTransport(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'TRANSPORTING', startTransportAt: new Date().toISOString() } : res));
+      await api.startTransport(missionId);
+      await loadMissionDetails();
       Alert.alert(
         'BẮT ĐẦU VẬN CHUYỂN! 🚑',
         'Đang vận chuyển bệnh nhân đến bệnh viện tiếp nhận.'
@@ -203,8 +203,8 @@ export default function NavigationScreen() {
     setLoadingAction(true);
     try {
       console.log('[DriverNav] Calling POST /dispatch-missions/{id}/arrive-hospital:', missionId);
-      const res = await api.arriveHospital(missionId);
-      setMission(prev => (prev ? { ...prev, status: 'ARRIVED_HOSPITAL', arrivedHospitalAt: new Date().toISOString() } : res));
+      await api.arriveHospital(missionId);
+      await loadMissionDetails();
       Alert.alert(
         'ĐÃ ĐẾN BỆNH VIỆN! 🏥',
         'Tiến hành bàn giao bệnh nhân cho Khoa Cấp Cứu tiếp nhận.'
@@ -303,32 +303,31 @@ export default function NavigationScreen() {
   }
 
   const missionAny = mission as any;
-  const incidentLat = params.lat 
-    ? Number(params.lat) 
-    : (missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285);
-  const incidentLng = params.lng 
-    ? Number(params.lng) 
-    : (missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542);
-  const incidentLocation: LatLng = { lat: incidentLat, lng: incidentLng };
+  const rawIncLat = params.lat ? Number(params.lat) : (missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? null);
+  const rawIncLng = params.lng ? Number(params.lng) : (missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? null);
+  
+  const incidentLocation: LatLng | undefined = (typeof rawIncLat === 'number' && !isNaN(rawIncLat) && typeof rawIncLng === 'number' && !isNaN(rawIncLng))
+    ? { lat: rawIncLat, lng: rawIncLng }
+    : undefined;
 
-  const hospitalLocation: LatLng = {
-    lat: missionAny?.hospitalLatitude ? Number(missionAny.hospitalLatitude) : 21.0150,
-    lng: missionAny?.hospitalLongitude ? Number(missionAny.hospitalLongitude) : 105.8320,
-  };
+  const rawHospLat = missionAny?.hospitalLatitude ? Number(missionAny.hospitalLatitude) : null;
+  const rawHospLng = missionAny?.hospitalLongitude ? Number(missionAny.hospitalLongitude) : null;
+  const hospitalLocation: LatLng | undefined = (typeof rawHospLat === 'number' && !isNaN(rawHospLat) && typeof rawHospLng === 'number' && !isNaN(rawHospLng))
+    ? { lat: rawHospLat, lng: rawHospLng }
+    : undefined;
 
   const isTransportingPhase = ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(currentStatus);
 
-  // Debug check: verify 4 coordinates are distinct and not artificially mapped to each other
+  // Debug check: verify coordinates from server vs driver GPS
   useEffect(() => {
     console.log('[DriverNav Coordinates Check]', {
-      incidentLat,
-      incidentLng,
+      incidentLocation: incidentLocation || 'Chưa có tọa độ từ máy chủ',
+      hospitalLocation: hospitalLocation || 'Chưa có tọa độ bệnh viện',
       driverLat: currentLat,
       driverLng: currentLng,
-      areIdentical: incidentLat === currentLat && incidentLng === currentLng,
       phase: isTransportingPhase ? 'TO_HOSPITAL' : 'TO_SCENE',
     });
-  }, [incidentLat, incidentLng, currentLat, currentLng, isTransportingPhase]);
+  }, [incidentLocation, hospitalLocation, currentLat, currentLng, isTransportingPhase]);
 
   return (
     <View style={styles.container}>

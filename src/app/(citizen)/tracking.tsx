@@ -17,7 +17,14 @@ import { api } from '@/services/api';
 import { CallStatusResponse, CallTrackingResponse, EmergencyCall, LatLng } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 
-type CaseStatus = 'PENDING' | 'DISPATCHED' | 'EN_ROUTE' | 'ARRIVED' | 'COMPLETED';
+type CaseStatus = 
+  | 'PENDING' 
+  | 'DISPATCHED' 
+  | 'EN_ROUTE' 
+  | 'ARRIVED_SCENE' 
+  | 'TRANSPORTING' 
+  | 'ARRIVED_HOSPITAL' 
+  | 'COMPLETED';
 
 export default function TrackingScreen() {
   const router = useRouter();
@@ -102,13 +109,18 @@ export default function TrackingScreen() {
         if (cancelled || !res) return;
         setTrackingData(res);
 
-        // Ambulance Location
-        if (typeof res.resourceLatitude === 'number' && typeof res.resourceLongitude === 'number') {
+        // Ambulance Location: Chỉ lấy từ BE thật, KHÔNG tự chế fake fallback
+        if (
+          typeof res.resourceLatitude === 'number' &&
+          typeof res.resourceLongitude === 'number' &&
+          !isNaN(res.resourceLatitude) &&
+          !isNaN(res.resourceLongitude)
+        ) {
           setAmbulancePos({
             lat: res.resourceLatitude,
             lng: res.resourceLongitude,
           });
-        } else if (res.tracking?.currentLocation) {
+        } else if (res.tracking?.currentLocation && typeof res.tracking.currentLocation.lat === 'number') {
           setAmbulancePos(res.tracking.currentLocation);
         }
 
@@ -123,27 +135,21 @@ export default function TrackingScreen() {
           setProgress(res.tracking.progress);
         }
 
-        // Status mapping
+        // Status mapping chi tiết từng giai đoạn cứu thương
         const currentSt = (res.missionStatus || res.dispatchRequestStatus || res.callStatus || '').toUpperCase();
         if (currentSt === 'DISPATCHED' || currentSt === 'ASSIGNED') {
           setStatus('DISPATCHED');
-        } else if (
-          currentSt === 'ACCEPTED' ||
-          currentSt === 'EN_ROUTE' ||
-          currentSt === 'RUNNING' ||
-          currentSt === 'TRANSPORTING'
-        ) {
+        } else if (currentSt === 'ACCEPTED' || currentSt === 'EN_ROUTE' || currentSt === 'RUNNING') {
           setStatus('EN_ROUTE');
-          if (!res.resourceLatitude) {
-            setAmbulancePos({ lat: victimLat + 0.004, lng: victimLng + 0.003 });
-          }
-        } else if (
-          currentSt === 'ARRIVED_SCENE' ||
-          currentSt === 'ARRIVED' ||
-          currentSt === 'ARRIVED_HOSPITAL'
-        ) {
-          setStatus('ARRIVED');
-          setAmbulancePos({ lat: victimLat, lng: victimLng });
+        } else if (currentSt === 'ARRIVED_SCENE' || currentSt === 'ARRIVED') {
+          setStatus('ARRIVED_SCENE');
+          setEta(0);
+          setDistance(0);
+          setProgress(100);
+        } else if (currentSt === 'TRANSPORTING') {
+          setStatus('TRANSPORTING');
+        } else if (currentSt === 'ARRIVED_HOSPITAL') {
+          setStatus('ARRIVED_HOSPITAL');
           setEta(0);
           setDistance(0);
           setProgress(100);
@@ -167,7 +173,7 @@ export default function TrackingScreen() {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [callId, victimLat, victimLng]);
+  }, [callId, isNumericCallId]);
 
   const driverPhone =
     callStatusData?.assignedUnit?.driverPhone ||
@@ -211,16 +217,42 @@ export default function TrackingScreen() {
 
   const victimLocation: LatLng = { lat: victimLat, lng: victimLng };
 
-  const getStatusColor = (s: CaseStatus) => {
-    if (status === s) return '#EF4444';
-    if (
-      status === 'ARRIVED' ||
-      status === 'COMPLETED' ||
-      (status === 'EN_ROUTE' && (s === 'PENDING' || s === 'DISPATCHED'))
-    ) {
-      return '#10B981';
+  const getStatusColor = (s: 'STEP_1' | 'STEP_2' | 'STEP_3' | 'STEP_4') => {
+    switch (s) {
+      case 'STEP_1':
+        return status === 'PENDING' ? '#EF4444' : '#10B981';
+      case 'STEP_2':
+        if (status === 'DISPATCHED' || status === 'EN_ROUTE') return '#EF4444';
+        if (['ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status)) return '#10B981';
+        return '#334155';
+      case 'STEP_3':
+        if (status === 'ARRIVED_SCENE') return '#EF4444';
+        if (['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status)) return '#10B981';
+        return '#334155';
+      case 'STEP_4':
+        if (status === 'TRANSPORTING' || status === 'ARRIVED_HOSPITAL') return '#F59E0B';
+        if (status === 'COMPLETED') return '#10B981';
+        return '#334155';
     }
-    return '#334155';
+  };
+
+  const getEtaTitle = () => {
+    switch (status) {
+      case 'PENDING':
+        return 'ĐANG ĐIỀU PHỐI XE...';
+      case 'DISPATCHED':
+        return 'XE ĐÃ ĐƯỢC ĐIỀU PHỐI';
+      case 'EN_ROUTE':
+        return `${eta} PHÚT (${distance.toFixed(1)} km)`;
+      case 'ARRIVED_SCENE':
+        return 'ĐÃ ĐẾN HIỆN TRƯỜNG';
+      case 'TRANSPORTING':
+        return 'ĐANG CHUYỂN ĐẾN BỆNH VIỆN';
+      case 'ARRIVED_HOSPITAL':
+        return 'ĐÃ ĐẾN BỆNH VIỆN TIẾP NHẬN';
+      case 'COMPLETED':
+        return 'ĐÃ HOÀN TẤT CA CẤP CỨU';
+    }
   };
 
   return (
@@ -232,6 +264,7 @@ export default function TrackingScreen() {
         <AmbulanceMap
           victimLocation={victimLocation}
           ambulanceLocation={ambulancePos}
+          destinationType={['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'HOSPITAL' : 'SCENE'}
           style={styles.map}
         />
       </View>
@@ -273,16 +306,12 @@ export default function TrackingScreen() {
         {/* ETA & Distance Row */}
         <View style={styles.sheetHeader}>
           <View style={styles.etaBlock}>
-            <Text style={styles.etaLabel}>DỰ KIẾN TIẾP CẬN</Text>
+            <Text style={styles.etaLabel}>TRẠNG THÁI TIẾP CẬN</Text>
             <Text style={styles.etaValue}>
-              {status === 'ARRIVED' || status === 'COMPLETED'
-                ? 'ĐÃ ĐẾN HIỆN TRƯỜNG'
-                : status === 'PENDING'
-                ? 'ĐANG ĐIỀU PHỐI XE...'
-                : `${eta} PHÚT (${distance.toFixed(1)} km)`}
+              {getEtaTitle()}
             </Text>
 
-            {status !== 'PENDING' && status !== 'ARRIVED' && status !== 'COMPLETED' && (
+            {status === 'EN_ROUTE' && (
               <View style={styles.progressRow}>
                 <View style={styles.progressBarBg}>
                   <View style={[styles.progressBarFill, { width: `${Math.min(100, progress)}%` }]} />
@@ -303,23 +332,25 @@ export default function TrackingScreen() {
             title="1. Đã tiếp nhận yêu cầu cấp cứu"
             time={callDetail?.createdAt ? new Date(callDetail.createdAt).toLocaleTimeString('vi-VN') : 'Đã ghi nhận'}
             status={status === 'PENDING' ? 'active' : 'done'}
-            color={getStatusColor('PENDING')}
+            color={getStatusColor('STEP_1')}
           />
           <TimelineItem
             title="2. Xe cứu thương đang di chuyển tới"
-            time={
-              status === 'EN_ROUTE' || status === 'DISPATCHED'
-                ? `Đang trên đường đến`
-                : ''
-            }
-            status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : status === 'ARRIVED' || status === 'COMPLETED' ? 'done' : 'pending'}
-            color={getStatusColor('EN_ROUTE')}
+            time={status === 'EN_ROUTE' || status === 'DISPATCHED' ? `Đang trên đường đến` : ''}
+            status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : ['ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
+            color={getStatusColor('STEP_2')}
           />
           <TimelineItem
             title="3. Đã tiếp cận hiện trường"
-            time={status === 'ARRIVED' || status === 'COMPLETED' ? 'Đang cấp cứu' : ''}
-            status={status === 'ARRIVED' || status === 'COMPLETED' ? 'active' : 'pending'}
-            color={getStatusColor('ARRIVED')}
+            time={status === 'ARRIVED_SCENE' ? 'Đang sơ cấp cứu' : ''}
+            status={status === 'ARRIVED_SCENE' ? 'active' : ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
+            color={getStatusColor('STEP_3')}
+          />
+          <TimelineItem
+            title="4. Vận chuyển đến bệnh viện tiếp nhận"
+            time={status === 'TRANSPORTING' ? 'Đang di chuyển viện' : status === 'ARRIVED_HOSPITAL' ? 'Đã bàn giao viện' : status === 'COMPLETED' ? 'Đã hoàn tất' : ''}
+            status={status === 'TRANSPORTING' || status === 'ARRIVED_HOSPITAL' ? 'active' : status === 'COMPLETED' ? 'done' : 'pending'}
+            color={getStatusColor('STEP_4')}
             isLast
           />
         </View>

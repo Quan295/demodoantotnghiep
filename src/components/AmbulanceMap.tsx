@@ -5,7 +5,7 @@ import { StyleSheet, View, Text, Platform } from 'react-native';
 import MapView, { Circle, Marker, Polyline, UrlTile } from 'react-native-maps';
 
 export interface AmbulanceMapProps {
-  victimLocation: LatLng;
+  victimLocation?: LatLng;
   ambulanceLocation?: LatLng;
   hospitalLocation?: LatLng;
   route?: LatLng[];
@@ -27,22 +27,29 @@ export default function AmbulanceMap({
   const targetLocation = destinationType === 'HOSPITAL' && hospitalLocation ? hospitalLocation : victimLocation;
 
   const initialRegion = useMemo(() => {
-    const minLat = ambulanceLocation ? Math.min(targetLocation.lat, ambulanceLocation.lat) : targetLocation.lat;
-    const maxLat = ambulanceLocation ? Math.max(targetLocation.lat, ambulanceLocation.lat) : targetLocation.lat;
-    const minLng = ambulanceLocation ? Math.min(targetLocation.lng, ambulanceLocation.lng) : targetLocation.lng;
-    const maxLng = ambulanceLocation ? Math.max(targetLocation.lng, ambulanceLocation.lng) : targetLocation.lng;
+    const centerLat = targetLocation?.lat ?? ambulanceLocation?.lat ?? 21.0091;
+    const centerLng = targetLocation?.lng ?? ambulanceLocation?.lng ?? 105.8247;
 
-    const midLat = (minLat + maxLat) / 2;
-    const midLng = (minLng + maxLng) / 2;
-    const latDelta = Math.max((maxLat - minLat) * 2.2, 0.015);
-    const lngDelta = Math.max((maxLng - minLng) * 2.2, 0.015);
+    if (targetLocation && ambulanceLocation) {
+      const minLat = Math.min(targetLocation.lat, ambulanceLocation.lat);
+      const maxLat = Math.max(targetLocation.lat, ambulanceLocation.lat);
+      const minLng = Math.min(targetLocation.lng, ambulanceLocation.lng);
+      const maxLng = Math.max(targetLocation.lng, ambulanceLocation.lng);
+      return {
+        latitude: (minLat + maxLat) / 2,
+        longitude: (minLng + maxLng) / 2,
+        latitudeDelta: Math.max((maxLat - minLat) * 2.2, 0.015),
+        longitudeDelta: Math.max((maxLng - minLng) * 2.2, 0.015),
+      };
+    }
+
     return {
-      latitude: midLat || 21.0091,
-      longitude: midLng || 105.8247,
-      latitudeDelta: latDelta,
-      longitudeDelta: lngDelta,
+      latitude: centerLat,
+      longitude: centerLng,
+      latitudeDelta: 0.015,
+      longitudeDelta: 0.015,
     };
-  }, []);
+  }, [targetLocation, ambulanceLocation]);
 
   // Smooth camera animate when ambulance moves without overriding user manual drag
   useEffect(() => {
@@ -102,38 +109,40 @@ export default function AmbulanceMap({
         />
 
         {/* Destination: Incident Scene (Victim) or Hospital */}
-        {destinationType === 'HOSPITAL' ? (
-          <Marker
-            coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            zIndex={10}
-          >
-            <View style={styles.hospitalMarker}>
-              <MaterialCommunityIcons name="hospital-building" size={16} color="#FFF" />
-            </View>
-          </Marker>
-        ) : (
-          <>
-            <Circle
-              center={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
-              radius={70}
-              strokeWidth={2}
-              strokeColor="rgba(240,68,56,0.6)"
-              fillColor="rgba(240,68,56,0.08)"
-              zIndex={5}
-            />
+        {targetLocation && (
+          destinationType === 'HOSPITAL' ? (
             <Marker
               coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
               anchor={{ x: 0.5, y: 0.5 }}
               zIndex={10}
             >
-              <View style={styles.victimMarkerOuter}>
-                <View style={styles.victimPingA} />
-                <View style={styles.victimPingB} />
-                <View style={styles.victimMarkerInner} />
+              <View style={styles.hospitalMarker}>
+                <MaterialCommunityIcons name="hospital-building" size={16} color="#FFF" />
               </View>
             </Marker>
-          </>
+          ) : (
+            <>
+              <Circle
+                center={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                radius={70}
+                strokeWidth={2}
+                strokeColor="rgba(240,68,56,0.6)"
+                fillColor="rgba(240,68,56,0.08)"
+                zIndex={5}
+              />
+              <Marker
+                coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={10}
+              >
+                <View style={styles.victimMarkerOuter}>
+                  <View style={styles.victimPingA} />
+                  <View style={styles.victimPingB} />
+                  <View style={styles.victimMarkerInner} />
+                </View>
+              </Marker>
+            </>
+          )
         )}
 
         {/* Ambulance Marker & Dynamic Route */}

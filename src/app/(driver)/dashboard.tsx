@@ -275,21 +275,6 @@ export default function DriverDashboard() {
     }
   }, [showIncomingOrder, flashAnim, radarScale, slideAnim]);
 
-  // Trigger demo incoming emergency order (__DEV__ only)
-  const handleSimulateIncomingOrder = () => {
-    const mission: DispatchMission = {
-      id: 3,
-      requestId: 3,
-      resourceId: 2,
-      destinationName: '12 Chùa Bộc, Đống Đa, Hà Nội',
-      status: 'DISPATCHED',
-      dispatchedAt: new Date().toISOString(),
-      notes: 'Tai nạn giao thông - Yêu cầu cấp cứu khẩn cấp',
-    };
-    setActiveMission(mission);
-    setShowIncomingOrder(true);
-  };
-
   // POST /dispatch-missions/{id}/accept
   const handleAcceptOrder = async () => {
     setShowIncomingOrder(false);
@@ -300,8 +285,8 @@ export default function DriverDashboard() {
       await api.acceptMission(missionId);
 
       const missionAny = activeMission as any;
-      const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285;
-      const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542;
+      const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? '';
+      const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? '';
 
       router.push({
         pathname: '/(driver)/navigation',
@@ -310,8 +295,8 @@ export default function DriverDashboard() {
           dispatchMissionId: String(missionId),
           requestId: String(activeMission.requestId || ''),
           destinationName: activeMission.destinationName || '',
-          lat: String(incLat),
-          lng: String(incLng),
+          lat: incLat ? String(incLat) : '',
+          lng: incLng ? String(incLng) : '',
         },
       });
     } catch (e: any) {
@@ -421,8 +406,8 @@ export default function DriverDashboard() {
               style={styles.runningMissionBanner}
               onPress={() => {
                 const missionAny = activeRunningMission as any;
-                const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285;
-                const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542;
+                const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? '';
+                const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? '';
 
                 router.push({
                   pathname: '/(driver)/navigation',
@@ -431,8 +416,8 @@ export default function DriverDashboard() {
                     dispatchMissionId: String(activeRunningMission.id),
                     requestId: String(activeRunningMission.requestId || ''),
                     destinationName: activeRunningMission.destinationName || '',
-                    lat: String(incLat),
-                    lng: String(incLng),
+                    lat: incLat ? String(incLat) : '',
+                    lng: incLng ? String(incLng) : '',
                   },
                 });
               }}
@@ -699,21 +684,6 @@ export default function DriverDashboard() {
                   </View>
                 </View>
               </View>
-
-              {/* DEV / SIMULATION ONLY */}
-              {__DEV__ && (
-                <View style={styles.devSection}>
-                  <Text style={styles.devSectionTitle}>DÀNH CHO PHÁT TRIỂN (DEVELOPMENT)</Text>
-                  <TouchableOpacity
-                    style={styles.simulateOrderBtn}
-                    onPress={handleSimulateIncomingOrder}
-                    activeOpacity={0.8}
-                  >
-                    <MaterialCommunityIcons name="alarm-light" size={18} color="#F87171" />
-                    <Text style={styles.simulateOrderText}>MÔ PHỎNG CA CẤP CỨU (MOCK DISPATCH)</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
 
               {/* QUICK ACTION BUTTON */}
               <View style={styles.quickActionsContainer}>
