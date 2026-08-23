@@ -205,9 +205,13 @@ class ApiService {
   }
 
   async sendOtp(phoneNumber: string) {
-    return await this.request('/auth/send-otp', {
+    return await this.request<{ data?: string; message?: string }>('/auth/send-otp', {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber }),
+      body: JSON.stringify({ 
+        phoneNumber,
+        identity: phoneNumber,
+        phone: phoneNumber,
+      }),
     });
   }
 

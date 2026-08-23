@@ -119,8 +119,17 @@ export default function AuthScreen() {
   const handleSendOtp = async (phoneNumber: string) => {
     try {
       setLoading(true);
-      await api.sendOtp(phoneNumber);
-      Alert.alert('Thành công', 'Mã OTP đã được gửi');
+      const res = await api.sendOtp(phoneNumber);
+      const rawData = (res as any)?.data ?? res;
+      const otpCode = typeof rawData === 'string' || typeof rawData === 'number' 
+        ? String(rawData) 
+        : (rawData?.otpCode ? String(rawData.otpCode) : '');
+      const otpText = otpCode ? `\n\nMã OTP xác thực của bạn: ${otpCode}` : '';
+
+      Alert.alert('Thành công', `Mã OTP đã được gửi đến số điện thoại ${phoneNumber}.${otpText}`);
+      if (otpCode) {
+        setRegisterOtp(otpCode);
+      }
       return true;
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
@@ -200,8 +209,16 @@ export default function AuthScreen() {
     try {
       setLoading(true);
       const res = await api.forgotPassword(forgotPhone);
-      const otpMsg = (res as any)?.data ? `\n(Mã OTP thử nghiệm: ${(res as any).data})` : '';
-      Alert.alert('Thành công', `Mã xác minh đã được gửi đến số điện thoại của bạn.${otpMsg}`);
+      const rawData = (res as any)?.data ?? res;
+      const otpCode = typeof rawData === 'string' || typeof rawData === 'number' 
+        ? String(rawData) 
+        : (rawData?.otpCode ? String(rawData.otpCode) : '');
+      const otpText = otpCode ? `\n\nMã OTP xác thực của bạn: ${otpCode}` : '';
+
+      Alert.alert('Thành công', `Mã xác minh đã được gửi đến số điện thoại của bạn.${otpText}`);
+      if (otpCode) {
+        setForgotOtp(otpCode);
+      }
       setMode('resetPassword');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');
