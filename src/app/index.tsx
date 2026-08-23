@@ -194,13 +194,14 @@ export default function AuthScreen() {
 
   const handleForgotPassword = async () => {
     if (!forgotPhone) {
-      Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại');
+      Alert.alert('Lỗi', 'Vui lòng nhập số điện thoại hoặc email');
       return;
     }
     try {
       setLoading(true);
-      await api.forgotPassword(forgotPhone);
-      Alert.alert('Thành công', 'Mã xác minh đã được gửi đến số điện thoại của bạn');
+      const res = await api.forgotPassword(forgotPhone);
+      const otpMsg = (res as any)?.data ? `\n(Mã OTP thử nghiệm: ${(res as any).data})` : '';
+      Alert.alert('Thành công', `Mã xác minh đã được gửi đến số điện thoại của bạn.${otpMsg}`);
       setMode('resetPassword');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Vui lòng thử lại sau');

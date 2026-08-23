@@ -218,17 +218,29 @@ class ApiService {
     });
   }
 
-  async resetPassword(phoneNumber: string, otpCode: string, newPassword: string) {
+  async resetPassword(identity: string, otpCode: string, newPassword: string) {
     return await this.request('/auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber, otpCode, newPassword }),
+      body: JSON.stringify({ 
+        identity,
+        phoneNumber: identity,
+        email: identity,
+        username: identity,
+        otpCode, 
+        newPassword 
+      }),
     });
   }
 
-  async forgotPassword(phoneNumber: string) {
-    return await this.request('/auth/forgot-password', {
+  async forgotPassword(identity: string) {
+    return await this.request<{ data?: string; message?: string }>('/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber }),
+      body: JSON.stringify({ 
+        identity,
+        phoneNumber: identity,
+        email: identity,
+        username: identity,
+      }),
     });
   }
 
