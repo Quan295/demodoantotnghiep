@@ -285,7 +285,15 @@ class ApiService {
 
   async logout() {
     try {
-      await this.request('/auth/logout', { method: 'POST' });
+      const refreshToken = globalConfig.getRefreshToken() || '';
+      if (refreshToken) {
+        await this.request('/auth/logout', { 
+          method: 'POST',
+          body: JSON.stringify({ refreshToken }),
+        });
+      }
+    } catch (e) {
+      console.warn('[API] Logout request warning (ignored):', e);
     } finally {
       globalConfig.setToken(null);
       globalConfig.setRefreshToken(null);
