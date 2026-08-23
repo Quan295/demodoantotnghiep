@@ -267,6 +267,34 @@ export default function NavigationScreen() {
     }
   };
 
+  const missionAny = mission as any;
+  const rawIncLat = params.lat ? Number(params.lat) : (missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? null);
+  const rawIncLng = params.lng ? Number(params.lng) : (missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? null);
+  
+  const incidentLocation: LatLng | undefined = (typeof rawIncLat === 'number' && !isNaN(rawIncLat) && typeof rawIncLng === 'number' && !isNaN(rawIncLng))
+    ? { lat: rawIncLat, lng: rawIncLng }
+    : undefined;
+
+  const rawHospLat = missionAny?.hospitalLatitude ? Number(missionAny.hospitalLatitude) : null;
+  const rawHospLng = missionAny?.hospitalLongitude ? Number(missionAny.hospitalLongitude) : null;
+  const hospitalLocation: LatLng | undefined = (typeof rawHospLat === 'number' && !isNaN(rawHospLat) && typeof rawHospLng === 'number' && !isNaN(rawHospLng))
+    ? { lat: rawHospLat, lng: rawHospLng }
+    : undefined;
+
+  const isTransportingPhase = ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(currentStatus);
+
+  // Debug check: verify coordinates from server vs driver GPS (Always called at top level)
+  useEffect(() => {
+    if (!mission) return;
+    console.log('[DriverNav Coordinates Check]', {
+      incidentLocation: incidentLocation || 'Chưa có tọa độ từ máy chủ',
+      hospitalLocation: hospitalLocation || 'Chưa có tọa độ bệnh viện',
+      driverLat: currentLat,
+      driverLng: currentLng,
+      phase: isTransportingPhase ? 'TO_HOSPITAL' : 'TO_SCENE',
+    });
+  }, [mission, incidentLocation, hospitalLocation, currentLat, currentLng, isTransportingPhase]);
+
   if (loadingMission) {
     return (
       <View style={styles.loadingContainer}>
@@ -301,33 +329,6 @@ export default function NavigationScreen() {
       </View>
     );
   }
-
-  const missionAny = mission as any;
-  const rawIncLat = params.lat ? Number(params.lat) : (missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? null);
-  const rawIncLng = params.lng ? Number(params.lng) : (missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? null);
-  
-  const incidentLocation: LatLng | undefined = (typeof rawIncLat === 'number' && !isNaN(rawIncLat) && typeof rawIncLng === 'number' && !isNaN(rawIncLng))
-    ? { lat: rawIncLat, lng: rawIncLng }
-    : undefined;
-
-  const rawHospLat = missionAny?.hospitalLatitude ? Number(missionAny.hospitalLatitude) : null;
-  const rawHospLng = missionAny?.hospitalLongitude ? Number(missionAny.hospitalLongitude) : null;
-  const hospitalLocation: LatLng | undefined = (typeof rawHospLat === 'number' && !isNaN(rawHospLat) && typeof rawHospLng === 'number' && !isNaN(rawHospLng))
-    ? { lat: rawHospLat, lng: rawHospLng }
-    : undefined;
-
-  const isTransportingPhase = ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(currentStatus);
-
-  // Debug check: verify coordinates from server vs driver GPS
-  useEffect(() => {
-    console.log('[DriverNav Coordinates Check]', {
-      incidentLocation: incidentLocation || 'Chưa có tọa độ từ máy chủ',
-      hospitalLocation: hospitalLocation || 'Chưa có tọa độ bệnh viện',
-      driverLat: currentLat,
-      driverLng: currentLng,
-      phase: isTransportingPhase ? 'TO_HOSPITAL' : 'TO_SCENE',
-    });
-  }, [incidentLocation, hospitalLocation, currentLat, currentLng, isTransportingPhase]);
 
   return (
     <View style={styles.container}>
