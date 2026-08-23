@@ -192,7 +192,7 @@ export default function DispatcherDashboard() {
 
                   <View style={styles.logContainer}>
                     <Text style={styles.logText}>[14:20:05] SOS DETECTED - CHUA BOC</Text>
-                    <Text style={styles.logText}>[14:20:07] WHISPER: "Help! Car accident..."</Text>
+                    <Text style={styles.logText}>{'[14:20:07] WHISPER: "Help! Car accident..."'}</Text>
                     <Text style={styles.logText}>[14:20:08] BERT: Traffic Collision (94%)</Text>
                     <Text style={styles.logText}>[14:21:12] UNIT-04 (HOSPITAL-115) DISPATCHED</Text>
                   </View>

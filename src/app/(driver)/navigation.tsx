@@ -24,6 +24,7 @@ import {
   getResourceLicensePlate,
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
+import { useDriverLocationTracking } from '@/hooks/useDriverLocationTracking';
 
 export default function NavigationScreen() {
   const router = useRouter();
@@ -41,10 +42,23 @@ export default function NavigationScreen() {
   const [loadingAction, setLoadingAction] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Driver GPS coordinates
-  const [driverPos, setDriverPos] = useState<LatLng>({
-    lat: 21.0091,
-    lng: 105.8247,
+  // Continuous Real-time Driver GPS Tracking (Single Source of Truth)
+  const {
+    position: driverPos,
+    latitude: currentLat,
+    longitude: currentLng,
+    speed: currentSpeed,
+    accuracy: currentAccuracy,
+    gpsStatus,
+    lastSyncedAt,
+    syncError,
+    syncInProgress,
+    manualSync,
+  } = useDriverLocationTracking({
+    enabled: true,
+    missionId,
+    timeInterval: 3000,
+    distanceInterval: 5,
   });
 
   // Load Mission Details (GET /dispatch-missions/me/{missionId}) & Resource
@@ -71,12 +85,6 @@ export default function NavigationScreen() {
 
       if (resResource.status === 'fulfilled' && resResource.value) {
         setDriverResource(resResource.value);
-        if (resResource.value.latitude && resResource.value.longitude) {
-          setDriverPos({
-            lat: Number(resResource.value.latitude),
-            lng: Number(resResource.value.longitude),
-          });
-        }
       }
     } catch (e: any) {
       console.warn('[DriverNav] Load mission details error:', e);
@@ -294,6 +302,34 @@ export default function NavigationScreen() {
     );
   }
 
+  const missionAny = mission as any;
+  const incidentLat = params.lat 
+    ? Number(params.lat) 
+    : (missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285);
+  const incidentLng = params.lng 
+    ? Number(params.lng) 
+    : (missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542);
+  const incidentLocation: LatLng = { lat: incidentLat, lng: incidentLng };
+
+  const hospitalLocation: LatLng = {
+    lat: missionAny?.hospitalLatitude ? Number(missionAny.hospitalLatitude) : 21.0150,
+    lng: missionAny?.hospitalLongitude ? Number(missionAny.hospitalLongitude) : 105.8320,
+  };
+
+  const isTransportingPhase = ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(currentStatus);
+
+  // Debug check: verify 4 coordinates are distinct and not artificially mapped to each other
+  useEffect(() => {
+    console.log('[DriverNav Coordinates Check]', {
+      incidentLat,
+      incidentLng,
+      driverLat: currentLat,
+      driverLng: currentLng,
+      areIdentical: incidentLat === currentLat && incidentLng === currentLng,
+      phase: isTransportingPhase ? 'TO_HOSPITAL' : 'TO_SCENE',
+    });
+  }, [incidentLat, incidentLng, currentLat, currentLng, isTransportingPhase]);
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -320,11 +356,34 @@ export default function NavigationScreen() {
           </View>
         </View>
 
+        {/* LIVE GPS / SERVER SYNC HUD STRIP */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#0B0F19', paddingHorizontal: 16, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.06)' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: gpsStatus === 'tracking' ? '#10B981' : '#EF4444' }} />
+            <Text style={{ fontSize: 10, fontWeight: '700', color: gpsStatus === 'tracking' ? '#34D399' : '#F87171' }}>
+              GPS: {gpsStatus === 'tracking' ? 'Đang hoạt động' : 'Tín hiệu yếu'}
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={{ fontSize: 10, fontWeight: '600', color: !syncError ? '#94A3B8' : '#F87171' }}>
+              Server: {syncError ? 'Lỗi kết nối' : (lastSyncedAt ? `${lastSyncedAt}` : 'Chờ đồng bộ')}
+            </Text>
+            <Text style={{ fontSize: 10, fontWeight: '600', color: '#64748B' }}>•</Text>
+            <Text style={{ fontSize: 10, fontWeight: '600', color: '#94A3B8' }}>
+              ~{currentAccuracy.toFixed(0)}m ({currentSpeed.toFixed(0)} km/h)
+            </Text>
+          </View>
+        </View>
+
         {/* MAP VIEW */}
         <View style={styles.mapContainer}>
           <AmbulanceMap
-            victimLocation={driverPos}
+            victimLocation={incidentLocation}
+            hospitalLocation={hospitalLocation}
             ambulanceLocation={driverPos}
+            destinationType={isTransportingPhase ? 'HOSPITAL' : 'SCENE'}
+            followAmbulance={true}
           />
 
           <TouchableOpacity style={styles.externalMapBtn} onPress={openExternalMap} activeOpacity={0.8}>

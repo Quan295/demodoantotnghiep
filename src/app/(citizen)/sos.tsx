@@ -148,7 +148,12 @@ export default function SOSScreen() {
       const callResult = await api.createSosCall(payload, sosKey);
       setDescription('');
 
-      const callId = (callResult as any)?.callId ?? (callResult as any)?.id;
+      const callId =
+        (callResult as any)?.callId ??
+        (callResult as any)?.id ??
+        (callResult as any)?.emergencyCallId ??
+        (callResult as any)?.data?.callId ??
+        (callResult as any)?.data?.id;
       if (!callId) {
         throw new Error('Máy chủ không trả về mã cuộc gọi (callId)');
       }
@@ -223,7 +228,12 @@ export default function SOSScreen() {
       await new Promise(resolve => setTimeout(resolve, 1500));
       setFlowStatus('success');
 
-      const callId = (result as any)?.callId ?? (result as any)?.id;
+      const callId =
+        (result as any)?.callId ??
+        (result as any)?.id ??
+        (result as any)?.emergencyCallId ??
+        (result as any)?.data?.callId ??
+        (result as any)?.data?.id;
       if (!callId) {
         throw new Error('Máy chủ không trả về mã cuộc gọi (callId)');
       }

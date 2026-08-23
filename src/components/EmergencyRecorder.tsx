@@ -225,7 +225,7 @@ export function EmergencyRecorder({
         <View style={styles.recordingBar}>
           <View style={styles.recordingDot} />
           <Text style={styles.recordingHint}>
-            Đang thu âm... Nhấn nút "DỪNG GHI ÂM" khi nói xong
+            {'Đang thu âm... Nhấn nút "DỪNG GHI ÂM" khi nói xong'}
           </Text>
         </View>
       )}
@@ -234,7 +234,7 @@ export function EmergencyRecorder({
         <View style={styles.recordedHint}>
           <Ionicons name="checkmark-circle" size={16} color="#10B981" />
           <Text style={styles.recordedHintText}>
-            Đã ghi xong ({mm}:{ss}). Bạn có thể nhấn "GỬI GHI ÂM CẤP CỨU" hoặc ghi âm lại
+            {`Đã ghi xong (${mm}:${ss}). Bạn có thể nhấn "GỬI GHI ÂM CẤP CỨU" hoặc ghi âm lại`}
           </Text>
         </View>
       )}

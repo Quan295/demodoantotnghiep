@@ -7,13 +7,17 @@ export const mapApiRoleToLocal = (apiRole: string): Role => {
     case 'DRIVER': return 'driver';
     case 'DISPATCHER': return 'dispatcher';
     case 'ADMIN': return 'admin';
-    case 'PROVIDER': return 'provider';
+    case 'PROVIDER':
+    case 'PROVIDER_ADMIN': return 'provider';
     default: return 'reporter';
   }
 };
 
 class ConfigService {
-  private apiBaseUrl: string = 'http://192.168.1.159:8080/api/v1';
+  private apiBaseUrl: string =
+    process.env.EXPO_PUBLIC_API_URL ||
+    process.env.EXPO_PUBLIC_API_BASE_URL ||
+    'http://192.168.1.159:8080/api/v1';
   private useMockData: boolean = false; // Always call real API as requested
   private token: string | null = null;
   private refreshTokenVal: string | null = null;

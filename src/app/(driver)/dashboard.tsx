@@ -27,7 +27,6 @@ import {
   MaterialCommunityIcons,
   Feather,
 } from '@expo/vector-icons';
-import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
 import {
@@ -38,6 +37,7 @@ import {
   getResourceLicensePlate,
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
+import { useDriverLocationTracking } from '@/hooks/useDriverLocationTracking';
 
 const { width, height } = Dimensions.get('window');
 
@@ -63,11 +63,9 @@ export default function DriverDashboard() {
   const [resourceConnected, setResourceConnected] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  // Status & GPS State
+  // Status & GPS Switch
   const [isAvailable, setIsAvailable] = useState<boolean>(true);
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
-  const [syncingLocation, setSyncingLocation] = useState<boolean>(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string>('Chưa đồng bộ');
 
   // Mission State (DRIVER - Mission API)
   const [activeRunningMission, setActiveRunningMission] = useState<DispatchMission | null>(null);
@@ -76,23 +74,58 @@ export default function DriverDashboard() {
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
 
-  // Current Coordinates
-  const [currentCoords, setCurrentCoords] = useState<{
-    latitude: number;
-    longitude: number;
-    speed: number;
-    heading: number;
-    accuracy: number;
-  }>({
-    latitude: 21.0091,
-    longitude: 105.8247,
-    speed: 0,
-    heading: 90,
-    accuracy: 5,
+  // Reusable Single Source of Truth Driver Location Tracking
+  const shouldTrack = autoSyncEnabled || !!activeRunningMission;
+  const {
+    position: currentPos,
+    latitude: currentLat,
+    longitude: currentLng,
+    speed: currentSpeed,
+    heading: currentHeading,
+    accuracy: currentAccuracy,
+    gpsStatus,
+    lastSyncedAt,
+    syncError,
+    syncInProgress,
+    manualSync,
+  } = useDriverLocationTracking({
+    enabled: shouldTrack,
+    missionId: activeRunningMission?.id,
+    timeInterval: 3000,
+    distanceInterval: 5,
   });
 
   // GPS Logs List (Local session logs only)
   const [gpsLogs, setGpsLogs] = useState<LocationSyncLog[]>([]);
+
+  // Log session updates when synced
+  useEffect(() => {
+    if (lastSyncedAt) {
+      const newLog: LocationSyncLog = {
+        id: `log-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        time: lastSyncedAt,
+        coords: `${currentLat.toFixed(6)}° N, ${currentLng.toFixed(6)}° E`,
+        speed: currentSpeed,
+        status: 'Đã đồng bộ lên máy chủ (PostGIS)',
+        source: 'AUTO_GPS',
+      };
+      setGpsLogs(prev => [newLog, ...prev.slice(0, 24)]);
+    }
+  }, [lastSyncedAt, currentLat, currentLng, currentSpeed]);
+
+  useEffect(() => {
+    if (syncError) {
+      const errLog: LocationSyncLog = {
+        id: `log-err-${Date.now()}`,
+        time: new Date().toLocaleTimeString('vi-VN'),
+        coords: `${currentLat.toFixed(6)}° N, ${currentLng.toFixed(6)}° E`,
+        speed: currentSpeed,
+        status: `Đồng bộ thất bại: ${syncError}`,
+        source: 'AUTO_GPS',
+      };
+      setGpsLogs(prev => [errLog, ...prev.slice(0, 24)]);
+    }
+  }, [syncError, currentLat, currentLng, currentSpeed]);
 
   // Incoming Mission Alert State
   const [showIncomingOrder, setShowIncomingOrder] = useState<boolean>(false);
@@ -103,16 +136,6 @@ export default function DriverDashboard() {
   const slideAnim = useRef(new Animated.Value(height)).current;
   const radarScale = useRef(new Animated.Value(1)).current;
   const pulseSyncAnim = useRef(new Animated.Value(1)).current;
-
-  // Auto-sync Interval Ref
-  const autoSyncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const autoSyncEnabledRef = useRef(autoSyncEnabled);
-  const isAvailableRef = useRef(isAvailable);
-  const currentCoordsRef = useRef(currentCoords);
-
-  useEffect(() => { autoSyncEnabledRef.current = autoSyncEnabled; }, [autoSyncEnabled]);
-  useEffect(() => { isAvailableRef.current = isAvailable; }, [isAvailable]);
-  useEffect(() => { currentCoordsRef.current = currentCoords; }, [currentCoords]);
 
   // 1. Fetch Driver Resource via GET /driver-resource (No fake fallback)
   const fetchDriverResource = useCallback(async (isRefresh = false) => {
@@ -126,13 +149,6 @@ export default function DriverDashboard() {
       if (resource) {
         setDriverResource(resource);
         setResourceConnected(true);
-        if (resource.latitude && resource.longitude) {
-          setCurrentCoords(prev => ({
-            ...prev,
-            latitude: Number(resource.latitude),
-            longitude: Number(resource.longitude),
-          }));
-        }
         const statusUpper = (resource.status || '').toUpperCase();
         setIsAvailable(statusUpper === 'AVAILABLE' || statusUpper === 'SẴN SÀNG');
       } else {
@@ -204,179 +220,29 @@ export default function DriverDashboard() {
     }
   };
 
-  // 5. Location Update Handler via PATCH /driver-resource/location (ownership-safe)
-  const sendLocationUpdate = useCallback(async (
-    lat: number,
-    lng: number,
-    speed = 0,
-    heading = 0,
-    accuracy = 5,
-    source: 'AUTO_GPS' | 'MANUAL' = 'AUTO_GPS'
-  ) => {
-    try {
-      setSyncingLocation(true);
-
-      const payload = {
-        latitude: lat,
-        longitude: lng,
-        speed,
-        heading,
-        accuracy,
-      };
-
-      console.log('[DriverDashboard] Calling PATCH /driver-resource/location:', payload);
-      await api.updateDriverResourceLocation(payload);
-
-      const nowStr = new Date().toLocaleTimeString('vi-VN');
-      setLastSyncTime(nowStr);
-
-      const newLog: LocationSyncLog = {
-        id: `log-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-        time: nowStr,
-        coords: `${lat.toFixed(6)}° N, ${lng.toFixed(6)}° E`,
-        speed,
-        status: 'Đã đồng bộ lên máy chủ',
-        source,
-      };
-
-      setGpsLogs(prev => [newLog, ...prev.slice(0, 24)]);
-      return true;
-    } catch (e: any) {
-      console.warn('[DriverDashboard] PATCH location failed:', e.message);
-      const nowStr = new Date().toLocaleTimeString('vi-VN');
-      const errLog: LocationSyncLog = {
-        id: `log-err-${Date.now()}`,
-        time: nowStr,
-        coords: `${lat.toFixed(6)}° N, ${lng.toFixed(6)}° E`,
-        speed,
-        status: `Đồng bộ thất bại: ${e.message || 'Lỗi mạng'}`,
-        source,
-      };
-      setGpsLogs(prev => [errLog, ...prev.slice(0, 24)]);
-      return false;
-    } finally {
-      setSyncingLocation(false);
-    }
-  }, []);
-
-  // 6. Manual Sync Location Button Handler
+  // Manual Sync Location Button Handler
   const handleManualSyncLocation = async () => {
     try {
-      setSyncingLocation(true);
-      let lat = currentCoords.latitude;
-      let lng = currentCoords.longitude;
-      let speed = currentCoords.speed;
-      let heading = currentCoords.heading;
-      let accuracy = currentCoords.accuracy;
-
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-          lat = loc.coords.latitude;
-          lng = loc.coords.longitude;
-          speed = loc.coords.speed || 0;
-          heading = loc.coords.heading || 0;
-          accuracy = loc.coords.accuracy || 5;
-          setCurrentCoords({ latitude: lat, longitude: lng, speed, heading, accuracy });
-        }
-      } catch (locErr) {
-        console.log('[DriverDashboard] Device GPS not available, using existing coordinates', locErr);
-      }
-
-      const success = await sendLocationUpdate(lat, lng, speed, heading, accuracy, 'MANUAL');
+      const success = await manualSync();
       if (success) {
         Alert.alert(
           'Đã Cập Nhật Vị Trí',
-          `Vị trí xe cứu thương đã được đồng bộ lên máy chủ thành công!\n\nTọa độ: ${lat.toFixed(6)}, ${lng.toFixed(6)}\nThời gian: ${new Date().toLocaleTimeString('vi-VN')}`
+          `Vị trí xe cứu thương đã được đồng bộ lên máy chủ thành công!\n\nTọa độ: ${currentLat.toFixed(6)}, ${currentLng.toFixed(6)}\nThời gian: ${lastSyncedAt || new Date().toLocaleTimeString('vi-VN')}`
         );
+      } else {
+        Alert.alert('Thông báo', syncError || 'Chưa thể đồng bộ vị trí, vui lòng kiểm tra kết nối GPS và mạng.');
       }
     } catch (e: any) {
       Alert.alert('Lỗi', 'Không thể cập nhật vị trí xe cứu thương: ' + e.message);
-    } finally {
-      setSyncingLocation(false);
     }
   };
 
-  // 7. Initial Load (Runs ONCE on screen mount)
+  // Initial Load (Runs ONCE on screen mount)
   useEffect(() => {
     fetchDriverResource();
     fetchActiveMissions();
     fetchMissionsHistory();
-
-    // Check device location once on launch
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          if (loc?.coords) {
-            setCurrentCoords({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              speed: loc.coords.speed || 0,
-              heading: loc.coords.heading || 0,
-              accuracy: loc.coords.accuracy || 5,
-            });
-            sendLocationUpdate(
-              loc.coords.latitude,
-              loc.coords.longitude,
-              loc.coords.speed || 0,
-              loc.coords.heading || 0,
-              loc.coords.accuracy || 5,
-              'AUTO_GPS'
-            );
-          }
-        }
-      } catch (err) {
-        console.log('[DriverDashboard] Initial GPS check skipped', err);
-      }
-    })();
-  }, [fetchActiveMissions, fetchDriverResource, fetchMissionsHistory, sendLocationUpdate]);
-
-  // 8. Auto-sync Interval with proper cleanup
-  useEffect(() => {
-    if (autoSyncIntervalRef.current) {
-      clearInterval(autoSyncIntervalRef.current);
-      autoSyncIntervalRef.current = null;
-    }
-
-    if (autoSyncEnabled && isAvailable) {
-      autoSyncIntervalRef.current = setInterval(async () => {
-        if (!autoSyncEnabledRef.current || !isAvailableRef.current) return;
-        try {
-          let lat = currentCoordsRef.current.latitude;
-          let lng = currentCoordsRef.current.longitude;
-          let spd = currentCoordsRef.current.speed;
-          let hdg = currentCoordsRef.current.heading;
-          let acc = currentCoordsRef.current.accuracy;
-
-          try {
-            const loc = await Location.getLastKnownPositionAsync();
-            if (loc?.coords) {
-              lat = loc.coords.latitude;
-              lng = loc.coords.longitude;
-              spd = loc.coords.speed || 0;
-              hdg = loc.coords.heading || 0;
-              acc = loc.coords.accuracy || 5;
-              setCurrentCoords({ latitude: lat, longitude: lng, speed: spd, heading: hdg, accuracy: acc });
-            }
-          } catch {}
-
-          sendLocationUpdate(lat, lng, spd, hdg, acc, 'AUTO_GPS');
-        } catch (e) {
-          console.warn('[DriverDashboard] Auto sync interval error:', e);
-        }
-      }, 15000);
-    }
-
-    return () => {
-      if (autoSyncIntervalRef.current) {
-        clearInterval(autoSyncIntervalRef.current);
-        autoSyncIntervalRef.current = null;
-      }
-    };
-  }, [autoSyncEnabled, isAvailable, sendLocationUpdate]);
+  }, [fetchActiveMissions, fetchDriverResource, fetchMissionsHistory]);
 
   // 9. Incoming Mission Overlay Animation
   useEffect(() => {
@@ -433,6 +299,10 @@ export default function DriverDashboard() {
       console.log('[DriverDashboard] Calling POST /dispatch-missions/{id}/accept:', missionId);
       await api.acceptMission(missionId);
 
+      const missionAny = activeMission as any;
+      const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285;
+      const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542;
+
       router.push({
         pathname: '/(driver)/navigation',
         params: {
@@ -440,6 +310,8 @@ export default function DriverDashboard() {
           dispatchMissionId: String(missionId),
           requestId: String(activeMission.requestId || ''),
           destinationName: activeMission.destinationName || '',
+          lat: String(incLat),
+          lng: String(incLng),
         },
       });
     } catch (e: any) {
@@ -493,8 +365,8 @@ export default function DriverDashboard() {
   const licensePlate = getResourceLicensePlate(driverResource);
 
   const mapAmbulanceLocation: LatLng = {
-    lat: currentCoords.latitude,
-    lng: currentCoords.longitude,
+    lat: currentLat,
+    lng: currentLng,
   };
 
   return (
@@ -548,6 +420,10 @@ export default function DriverDashboard() {
             <TouchableOpacity
               style={styles.runningMissionBanner}
               onPress={() => {
+                const missionAny = activeRunningMission as any;
+                const incLat = missionAny?.incidentLatitude ?? missionAny?.latitude ?? missionAny?.request?.latitude ?? 21.0285;
+                const incLng = missionAny?.incidentLongitude ?? missionAny?.longitude ?? missionAny?.request?.longitude ?? 105.8542;
+
                 router.push({
                   pathname: '/(driver)/navigation',
                   params: {
@@ -555,6 +431,8 @@ export default function DriverDashboard() {
                     dispatchMissionId: String(activeRunningMission.id),
                     requestId: String(activeRunningMission.requestId || ''),
                     destinationName: activeRunningMission.destinationName || '',
+                    lat: String(incLat),
+                    lng: String(incLng),
                   },
                 });
               }}
@@ -726,12 +604,12 @@ export default function DriverDashboard() {
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.syncNowBtn, syncingLocation && styles.syncNowBtnActive]}
+                    style={[styles.syncNowBtn, syncInProgress && styles.syncNowBtnActive]}
                     onPress={handleManualSyncLocation}
-                    disabled={syncingLocation}
+                    disabled={syncInProgress}
                     activeOpacity={0.8}
                   >
-                    {syncingLocation ? (
+                    {syncInProgress ? (
                       <ActivityIndicator size="small" color="#022C22" />
                     ) : (
                       <>
@@ -742,31 +620,54 @@ export default function DriverDashboard() {
                   </TouchableOpacity>
                 </View>
 
+                {/* GPS / Server Real-time Status Indicators */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: gpsStatus === 'tracking' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: gpsStatus === 'tracking' ? '#10B981' : '#EF4444', marginRight: 6 }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: gpsStatus === 'tracking' ? '#34D399' : '#F87171' }}>
+                      GPS: {gpsStatus === 'tracking' ? 'Đang hoạt động' : gpsStatus === 'denied' ? 'Bị từ chối quyền' : 'Đang lấy tín hiệu'}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: !syncError ? 'rgba(56, 189, 248, 0.15)' : 'rgba(239, 68, 68, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: !syncError ? '#38BDF8' : '#EF4444', marginRight: 6 }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: !syncError ? '#38BDF8' : '#F87171' }}>
+                      Server: {syncError ? 'Lỗi kết nối' : (lastSyncedAt ? `${lastSyncedAt}` : 'Chờ đồng bộ')}
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(148, 163, 184, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#94A3B8' }}>
+                      Độ chính xác: ~{currentAccuracy.toFixed(0)}m • Tốc độ: {currentSpeed.toFixed(0)} km/h
+                    </Text>
+                  </View>
+                </View>
+
                 {/* Coordinates Grid */}
                 <View style={styles.coordsGrid}>
                   <View style={styles.coordBox}>
                     <Text style={styles.coordLabel}>VĨ ĐỘ (LATITUDE)</Text>
-                    <Text style={styles.coordValue}>{currentCoords.latitude.toFixed(6)}° N</Text>
+                    <Text style={styles.coordValue}>{currentLat.toFixed(6)}° N</Text>
                   </View>
                   <View style={styles.coordBox}>
                     <Text style={styles.coordLabel}>KINH ĐỘ (LONGITUDE)</Text>
-                    <Text style={styles.coordValue}>{currentCoords.longitude.toFixed(6)}° E</Text>
+                    <Text style={styles.coordValue}>{currentLng.toFixed(6)}° E</Text>
                   </View>
                 </View>
 
                 <View style={styles.coordsSubGrid}>
                   <View style={styles.subCoordItem}>
                     <Ionicons name="time-outline" size={14} color="#94A3B8" />
-                    <Text style={styles.subCoordText}>Đồng bộ gần nhất: {lastSyncTime}</Text>
+                    <Text style={styles.subCoordText}>Đồng bộ gần nhất: {lastSyncedAt || 'Chưa có'}</Text>
                   </View>
                 </View>
 
                 {/* Auto Sync Switch Row */}
                 <View style={styles.autoSyncRow}>
                   <View style={styles.autoSyncInfo}>
-                    <Text style={styles.autoSyncTitle}>Tự động đồng bộ GPS mỗi 15 giây</Text>
+                    <Text style={styles.autoSyncTitle}>Tự động theo dõi & đồng bộ GPS</Text>
                     <Text style={styles.autoSyncDesc}>
-                      Gửi tọa độ PostGIS thời gian thực lên máy chủ backend
+                      {shouldTrack ? 'Đang tự động phát tín hiệu vị trí thời gian thực (3s/lần)' : 'Đã tạm dừng theo dõi GPS'}
                     </Text>
                   </View>
                   <Switch
@@ -787,13 +688,13 @@ export default function DriverDashboard() {
 
                 <View style={styles.mapFrame}>
                   <AmbulanceMap
-                    victimLocation={mapAmbulanceLocation}
-                    ambulanceLocation={mapAmbulanceLocation}
+                    victimLocation={currentPos}
+                    ambulanceLocation={currentPos}
                   />
                   <View style={styles.mapOverlayPill}>
                     <View style={styles.pulseDot} />
                     <Text style={styles.mapOverlayText}>
-                      {licensePlate} • {currentCoords.latitude.toFixed(4)}, {currentCoords.longitude.toFixed(4)}
+                      {licensePlate} • {currentLat.toFixed(4)}, {currentLng.toFixed(4)}
                     </Text>
                   </View>
                 </View>
