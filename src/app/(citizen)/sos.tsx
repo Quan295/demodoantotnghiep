@@ -601,6 +601,7 @@ export default function SOSScreen() {
                 const callId = item.id ?? (item as any).callId ?? (index + 1);
                 const reqId = (item as any).requestId ?? (item as any).dispatchRequestId ?? (item as any).request?.id;
                 const idLabel = reqId ? `CUỘC GỌI #${callId} • YÊU CẦU #${reqId}` : `MÃ CUỘC GỌI: #${callId}`;
+                const effectiveStatus = resolveCallListItemStatus(item);
 
                 return (
                   <View style={styles.callHistoryCard}>
@@ -608,8 +609,8 @@ export default function SOSScreen() {
                       <View style={styles.callIdBadge}>
                         <Text style={styles.callIdText}>{idLabel}</Text>
                       </View>
-                      <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
-                        <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
+                      <View style={[styles.statusBadge, getStatusBadgeStyle(effectiveStatus)]}>
+                        <Text style={styles.statusBadgeText}>{getStatusText(effectiveStatus)}</Text>
                       </View>
                     </View>
 
@@ -955,20 +956,51 @@ const TipCard = ({ icon, title, desc, color }: { icon: any; title: string; desc:
   </View>
 );
 
+const resolveCallListItemStatus = (item: any): string => {
+  if (!item) return 'RECEIVED';
+  const missionStatus = (item.missionStatus || item.mission_status || '')?.toUpperCase();
+  const requestStatus = (item.requestStatus || item.request_status || item.dispatchStatus || '')?.toUpperCase();
+  const callStatus = (item.status || item.callStatus || item.call_status || '')?.toUpperCase();
+
+  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+    return 'COMPLETED';
+  }
+  if (['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE', 'AT_SCENE', 'ARRIVED'].includes(missionStatus) ||
+      ['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE'].includes(requestStatus)) {
+    return 'ARRIVED_SCENE';
+  }
+  if (['EN_ROUTE', 'START', 'RUNNING'].includes(missionStatus) || ['EN_ROUTE', 'IN_PROGRESS'].includes(requestStatus)) {
+    return 'EN_ROUTE';
+  }
+  if (['ACCEPTED', 'ASSIGNED', 'DISPATCHED'].includes(missionStatus) || ['ASSIGNED', 'DISPATCHED'].includes(requestStatus) || ['ASSIGNED', 'DISPATCHED'].includes(callStatus)) {
+    return 'DISPATCHED';
+  }
+  if (['PENDING', 'RECEIVED', 'CREATED', 'NEW'].includes(callStatus) || ['PENDING', 'RECEIVED', 'CREATED'].includes(requestStatus)) {
+    return 'RECEIVED';
+  }
+  return callStatus || 'RECEIVED';
+};
+
 const getStatusBadgeStyle = (status: string) => {
   switch ((status || '').toUpperCase()) {
     case 'PENDING':
     case 'RECEIVED':
-      return { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)' };
+      return { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.3)' };
     case 'ASSIGNED':
     case 'DISPATCHED':
+      return { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)' };
     case 'EN_ROUTE':
-      return { backgroundColor: 'rgba(56, 189, 248, 0.15)', borderColor: 'rgba(56, 189, 248, 0.3)' };
+    case 'RUNNING':
+      return { backgroundColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.3)' };
     case 'ARRIVED':
     case 'ARRIVED_SCENE':
+    case 'TRANSPORTING':
+    case 'ARRIVED_HOSPITAL':
       return { backgroundColor: 'rgba(167, 139, 250, 0.15)', borderColor: 'rgba(167, 139, 250, 0.3)' };
     case 'COMPLETED':
       return { backgroundColor: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)' };
+    case 'CANCELLED':
+      return { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' };
     default:
       return { backgroundColor: 'rgba(148, 163, 184, 0.15)', borderColor: 'rgba(148, 163, 184, 0.3)' };
   }
@@ -978,7 +1010,7 @@ const getStatusText = (status: string) => {
   switch ((status || '').toUpperCase()) {
     case 'PENDING':
     case 'RECEIVED':
-      return 'ĐANG CHỜ TIẾP NHẬN';
+      return 'ĐÃ TIẾP NHẬN';
     case 'ASSIGNED':
     case 'DISPATCHED':
       return 'ĐÃ ĐIỀU PHỐI XE';
@@ -988,12 +1020,16 @@ const getStatusText = (status: string) => {
     case 'ARRIVED':
     case 'ARRIVED_SCENE':
       return 'ĐÃ ĐẾN HIỆN TRƯỜNG';
+    case 'TRANSPORTING':
+      return 'ĐANG CHUYỂN VIỆN';
+    case 'ARRIVED_HOSPITAL':
+      return 'ĐÃ TỚI BỆNH VIỆN';
     case 'COMPLETED':
       return 'HOÀN THÀNH';
     case 'CANCELLED':
       return 'ĐÃ HỦY';
     default:
-      return status || 'ĐANG XỬ LÝ';
+      return 'ĐÃ TIẾP NHẬN';
   }
 };
 
