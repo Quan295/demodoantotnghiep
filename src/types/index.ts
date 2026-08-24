@@ -359,12 +359,17 @@ export interface EmergencyCall {
 }
 
 export interface CallStatusResponse {
-  id: string | number;
+  id?: string | number;
   callId?: string | number;
-  status: string;
+  callStatus?: string;
+  status?: string;
+  requestId?: string | number | null;
+  requestStatus?: string | null;
+  missionId?: string | number | null;
+  missionStatus?: string | null;
   statusText?: string;
   statusDescription?: string;
-  updatedAt: string;
+  updatedAt?: string;
   assignedUnit?: {
     vehiclePlate?: string;
     driverName?: string;

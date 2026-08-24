@@ -748,41 +748,48 @@ export default function SOSScreen() {
                 ) : (
                   <ScrollView style={styles.modalScrollView} showsVerticalScrollIndicator={false}>
                     {/* Status Stepper */}
-                    <View style={styles.stepperBox}>
-                      <StepItem
-                        step={1}
-                        title="1. Đã Tiếp Nhận Yêu Cầu"
-                        active={(selectedCallStatus?.stepIndex ?? 1) >= 0}
-                      />
-                      <StepItem
-                        step={2}
-                        title="2. Đã Điều Phối Xe Cấp Cứu"
-                        active={(selectedCallStatus?.stepIndex ?? 1) >= 1}
-                      />
-                      <StepItem
-                        step={3}
-                        title="3. Xe Đang Di Chuyển Đến Hiện Trường"
-                        active={(selectedCallStatus?.stepIndex ?? 1) >= 2}
-                      />
-                      <StepItem
-                        step={4}
-                        title="4. Đội Cứu Hộ Đã Tiếp Cận Hiện Trường"
-                        active={(selectedCallStatus?.stepIndex ?? 1) >= 3}
-                      />
-                      <StepItem
-                        step={5}
-                        title="5. Hoàn Tất Ca Cứu Hộ"
-                        active={(selectedCallStatus?.stepIndex ?? 1) >= 4}
-                      />
-                    </View>
+                    {(() => {
+                      const currentStep = resolveCallStepIndex(selectedCallStatus, selectedCallDetails?.status);
+                      const descText = resolveCallStatusDescription(selectedCallStatus);
 
-                    {/* Status Description Banner */}
-                    <View style={styles.statusDescCard}>
-                      <Ionicons name="information-circle" size={20} color="#38BDF8" />
-                      <Text style={styles.statusDescText}>
-                        {selectedCallStatus?.statusDescription || 'Hệ thống đang tích cực xử lý ca cấp cứu.'}
-                      </Text>
-                    </View>
+                      return (
+                        <>
+                          <View style={styles.stepperBox}>
+                            <StepItem
+                              step={1}
+                              title="1. Đã Tiếp Nhận Yêu Cầu"
+                              active={currentStep >= 0}
+                            />
+                            <StepItem
+                              step={2}
+                              title="2. Đã Điều Phối Xe Cấp Cứu"
+                              active={currentStep >= 1}
+                            />
+                            <StepItem
+                              step={3}
+                              title="3. Xe Đang Di Chuyển Đến Hiện Trường"
+                              active={currentStep >= 2}
+                            />
+                            <StepItem
+                              step={4}
+                              title="4. Đội Cứu Hộ Đã Tiếp Cận Hiện Trường"
+                              active={currentStep >= 3}
+                            />
+                            <StepItem
+                              step={5}
+                              title="5. Hoàn Tất Ca Cứu Hộ"
+                              active={currentStep >= 4}
+                            />
+                          </View>
+
+                          {/* Status Description Banner */}
+                          <View style={styles.statusDescCard}>
+                            <Ionicons name="information-circle" size={20} color="#38BDF8" />
+                            <Text style={styles.statusDescText}>{descText}</Text>
+                          </View>
+                        </>
+                      );
+                    })()}
 
                     {/* Assigned Unit Details */}
                     {(() => {
@@ -848,6 +855,79 @@ export default function SOSScreen() {
       </LinearGradient>
     </View>
   );
+}
+
+function resolveCallStepIndex(callStatusObj?: CallStatusResponse | null, fallbackStatus?: string): number {
+  if (!callStatusObj && !fallbackStatus) return 0;
+
+  const anyObj = (callStatusObj || {}) as any;
+  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || '')?.toUpperCase();
+  const requestStatus = (anyObj.requestStatus || anyObj.request_status || '')?.toUpperCase();
+  const callStatus = (anyObj.callStatus || anyObj.call_status || anyObj.status || fallbackStatus || '')?.toUpperCase();
+
+  // 1. Hoàn tất ca cứu hộ
+  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+    return 4; // Step 5 (0-indexed 4)
+  }
+
+  // 2. Trạng thái Mission từ BE
+  if (['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE', 'AT_SCENE', 'ARRIVED'].includes(missionStatus)) {
+    return 3; // Step 4: Đội cứu hộ đã tiếp cận hiện trường / đang vận chuyển
+  }
+  if (['EN_ROUTE', 'DISPATCHED', 'START'].includes(missionStatus)) {
+    return 2; // Step 3: Xe đang di chuyển đến hiện trường
+  }
+  if (['ACCEPTED', 'ASSIGNED', 'CREATED'].includes(missionStatus)) {
+    return 1; // Step 2: Đã điều phối xe cấp cứu
+  }
+
+  // 3. Trạng thái Request từ BE
+  if (['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE'].includes(requestStatus)) {
+    return 3;
+  }
+  if (['EN_ROUTE', 'IN_PROGRESS'].includes(requestStatus)) {
+    return 2;
+  }
+  if (['DISPATCHED', 'ASSIGNED', 'ACCEPTED'].includes(requestStatus)) {
+    return 1;
+  }
+  if (['PENDING', 'RECEIVED', 'CREATED'].includes(requestStatus)) {
+    return 0;
+  }
+
+  // 4. Trạng thái Call
+  if (['PROCESSING', 'DISPATCHED', 'ASSIGNED'].includes(callStatus)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function resolveCallStatusDescription(callStatusObj?: CallStatusResponse | null): string {
+  const anyObj = (callStatusObj || {}) as any;
+  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || '')?.toUpperCase();
+  const requestStatus = (anyObj.requestStatus || anyObj.request_status || '')?.toUpperCase();
+  const callStatus = (anyObj.callStatus || anyObj.call_status || anyObj.status || '')?.toUpperCase();
+
+  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+    return 'Ca cứu hộ đã hoàn thành thành công. Bệnh nhân đã được tiếp nhận và xử lý.';
+  }
+  if (missionStatus === 'ARRIVED_HOSPITAL') {
+    return 'Xe cấp cứu đã đưa bệnh nhân đến bệnh viện an toàn.';
+  }
+  if (missionStatus === 'TRANSPORTING') {
+    return 'Đội ngũ y tế đang thực hiện chuyển bệnh nhân đến bệnh viện điều trị.';
+  }
+  if (missionStatus === 'ARRIVED_SCENE' || missionStatus === 'AT_SCENE' || missionStatus === 'ARRIVED') {
+    return 'Đội cứu hộ và y bác sĩ đã có mặt tại hiện trường để sơ cấp cứu.';
+  }
+  if (missionStatus === 'EN_ROUTE' || missionStatus === 'START') {
+    return 'Xe cấp cứu đang bật còi ưu tiên di chuyển khẩn cấp đến vị trí của bạn.';
+  }
+  if (missionStatus === 'ACCEPTED' || requestStatus === 'ASSIGNED' || requestStatus === 'DISPATCHED') {
+    return 'Tổng đài 115 đã điều phối xe cấp cứu và kíp y tế tiếp nhận ca cứu nạn.';
+  }
+  return anyObj.statusDescription || 'Hệ thống 115 đã tiếp nhận và đang tích cực xử lý ca cấp cứu.';
 }
 
 const StepItem = ({ step, title, active }: { step: number; title: string; active: boolean }) => (
