@@ -68,7 +68,7 @@ export default function SOSScreen() {
 
   // Detail / Status Modal State (from GET /calls/{id} & GET /calls/{id}/status)
   const [selectedCallId, setSelectedCallId] = useState<string | number | null>(null);
-  const [, setSelectedCallDetails] = useState<EmergencyCall | null>(null);
+  const [selectedCallDetails, setSelectedCallDetails] = useState<EmergencyCall | null>(null);
   const [selectedCallStatus, setSelectedCallStatus] = useState<CallStatusResponse | null>(null);
   const [loadingStatusModal, setLoadingStatusModal] = useState<boolean>(false);
   const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
@@ -598,11 +598,15 @@ export default function SOSScreen() {
                   ? new Date(rawTime).toLocaleString('vi-VN')
                   : 'Chưa có thời gian';
 
+                const callId = item.id ?? (item as any).callId ?? (index + 1);
+                const reqId = (item as any).requestId ?? (item as any).dispatchRequestId ?? (item as any).request?.id;
+                const idLabel = reqId ? `CUỘC GỌI #${callId} • YÊU CẦU #${reqId}` : `MÃ CUỘC GỌI: #${callId}`;
+
                 return (
                   <View style={styles.callHistoryCard}>
                     <View style={styles.callCardHeader}>
                       <View style={styles.callIdBadge}>
-                        <Text style={styles.callIdText}>MÃ YÊU CẦU: #{item.id ?? index + 1}</Text>
+                        <Text style={styles.callIdText}>{idLabel}</Text>
                       </View>
                       <View style={[styles.statusBadge, getStatusBadgeStyle(item.status)]}>
                         <Text style={styles.statusBadgeText}>{getStatusText(item.status)}</Text>
@@ -719,8 +723,14 @@ export default function SOSScreen() {
               <View style={styles.modalContainer}>
                 <View style={styles.modalHeader}>
                   <View>
-                    <Text style={styles.modalTitle}>CHI TIẾT & TRẠNG THÁI YÊU CẦU</Text>
-                    <Text style={styles.modalSubTitle}>Mã cuộc gọi: #{selectedCallId}</Text>
+                    <Text style={styles.modalTitle}>CHI TIẾT & TRẠNG THÁI</Text>
+                    <Text style={styles.modalSubTitle}>
+                      Mã cuộc gọi: #{selectedCallId}
+                      {(() => {
+                        const rId = (selectedCallDetails as any)?.requestId ?? (selectedCallDetails as any)?.dispatchRequestId ?? (selectedCallStatus as any)?.requestId;
+                        return rId ? ` • Mã yêu cầu: #${rId}` : '';
+                      })()}
+                    </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.modalCloseBtn}

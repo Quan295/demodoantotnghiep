@@ -282,7 +282,12 @@ export default function TrackingScreen() {
         <View style={styles.topCallIdBadge}>
           <View style={styles.livePulseDot} />
           <Text style={styles.topCallIdText}>
-            YÊU CẦU #{callId || 'SOS-115'} • THEO DÕI TRỰC TIẾP
+            {(() => {
+              const reqId = (callDetail as any)?.requestId ?? (callDetail as any)?.dispatchRequestId ?? (trackingData as any)?.requestId;
+              return reqId 
+                ? `CUỘC GỌI #${callId || '115'} • YÊU CẦU #${reqId}` 
+                : `CUỘC GỌI #${callId || '115'} • THEO DÕI TRỰC TIẾP`;
+            })()}
           </Text>
         </View>
 
