@@ -53,8 +53,8 @@ interface LocationSyncLog {
 export default function DriverDashboard() {
   const router = useRouter();
 
-  // Tab State: 'overview' | 'missions' | 'vehicle' | 'logs'
-  const [activeTab, setActiveTab] = useState<'overview' | 'missions' | 'vehicle' | 'logs'>('overview');
+  // Tab State: 'overview' | 'missions' | 'vehicle'
+  const [activeTab, setActiveTab] = useState<'overview' | 'missions' | 'vehicle'>('overview');
 
   // Resource State from API (GET /driver-resource)
   const [driverResource, setDriverResource] = useState<DriverResource | null>(null);
@@ -486,20 +486,6 @@ export default function DriverDashboard() {
                 Xe & Thiết Bị
               </Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.tabItem, activeTab === 'logs' && styles.tabItemActive]}
-              onPress={() => setActiveTab('logs')}
-            >
-              <MaterialCommunityIcons
-                name="history"
-                size={16}
-                color={activeTab === 'logs' ? '#10B981' : '#64748B'}
-              />
-              <Text style={[styles.tabText, activeTab === 'logs' && styles.tabTextActive]}>
-                Nhật Ký Phiên
-              </Text>
-            </TouchableOpacity>
           </View>
 
           {/* TAB 1: OVERVIEW & GPS DISPATCH */}
@@ -516,35 +502,6 @@ export default function DriverDashboard() {
                 />
               }
             >
-              {/* STATUS CARD (DISABLED SWITCH AS BACKEND DOES NOT SUPPORT PATCH /status) */}
-              <View style={styles.statusCard}>
-                <View style={styles.statusLeft}>
-                  <View style={[styles.statusIconBox, { backgroundColor: isAvailable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)' }]}>
-                    <MaterialCommunityIcons
-                      name={isAvailable ? 'radiobox-marked' : 'radiobox-blank'}
-                      size={22}
-                      color={isAvailable ? '#10B981' : '#EF4444'}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.statusLabel}>TRẠNG THÁI XE CẤP CỨU</Text>
-                    <Text style={[styles.statusValue, { color: isAvailable ? '#34D399' : '#F87171' }]}>
-                      {driverResource?.status || (isAvailable ? 'AVAILABLE' : 'OFFLINE')}
-                    </Text>
-                    <Text style={styles.statusNote}>
-                      Chức năng cập nhật ca trực chưa được backend hỗ trợ
-                    </Text>
-                  </View>
-                </View>
-
-                <Switch
-                  value={isAvailable}
-                  disabled={true}
-                  trackColor={{ false: '#334155', true: '#059669' }}
-                  thumbColor={isAvailable ? '#34D399' : '#94A3B8'}
-                />
-              </View>
-
               {/* API RESOURCE SUMMARY CARD */}
               <View style={styles.resourceSummaryCard}>
                 <View style={styles.resourceHeaderRow}>
@@ -683,18 +640,6 @@ export default function DriverDashboard() {
                     </Text>
                   </View>
                 </View>
-              </View>
-
-              {/* QUICK ACTION BUTTON */}
-              <View style={styles.quickActionsContainer}>
-                <TouchableOpacity
-                  style={[styles.quickActionBtn, { backgroundColor: 'rgba(56, 189, 248, 0.12)', borderColor: 'rgba(56, 189, 248, 0.3)' }]}
-                  onPress={handleCallDispatcher}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="call" size={20} color="#38BDF8" />
-                  <Text style={[styles.quickActionText, { color: '#38BDF8' }]}>GỌI TỔNG ĐÀI 115</Text>
-                </TouchableOpacity>
               </View>
             </ScrollView>
           )}
@@ -861,46 +806,6 @@ export default function DriverDashboard() {
                 )}
               </View>
             </ScrollView>
-          )}
-
-          {/* TAB 4: CURRENT SESSION GPS SYNC LOGS */}
-          {activeTab === 'logs' && (
-            <View style={{ flex: 1 }}>
-              <View style={styles.logsSessionNotice}>
-                <Ionicons name="information-circle-outline" size={14} color="#94A3B8" />
-                <Text style={styles.logsSessionNoticeText}>
-                  Nhật ký đồng bộ phiên hiện tại (Lưu cục bộ, không phải lịch sử máy chủ)
-                </Text>
-              </View>
-              <FlatList
-                data={gpsLogs}
-                keyExtractor={(item, index) => (item?.id ? item.id : `log-key-${index}`)}
-                contentContainerStyle={styles.logsListContent}
-                renderItem={({ item }) => (
-                  <View style={styles.logCard}>
-                    <View style={styles.logHeaderRow}>
-                      <View style={styles.logTimeTag}>
-                        <Ionicons name="time-outline" size={11} color="#94A3B8" />
-                        <Text style={styles.logTimeText}>{item.time}</Text>
-                      </View>
-                      <View style={[styles.logSourceBadge, { backgroundColor: item.source === 'MANUAL' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(16, 185, 129, 0.15)' }]}>
-                        <Text style={[styles.logSourceText, { color: item.source === 'MANUAL' ? '#38BDF8' : '#34D399' }]}>
-                          {item.source}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={styles.logCoordsText}>{item.coords}</Text>
-                    <Text style={styles.logStatusText}>{item.status}</Text>
-                  </View>
-                )}
-                ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <MaterialCommunityIcons name="satellite-uplink" size={40} color="#334155" />
-                    <Text style={styles.emptySubtitle}>Chưa có lượt đồng bộ nào trong phiên này.</Text>
-                  </View>
-                }
-              />
-            </View>
           )}
 
           {/* MODAL: MISSION DETAIL (GET /dispatch-missions/me/{missionId}) */}
