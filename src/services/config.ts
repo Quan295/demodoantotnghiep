@@ -48,7 +48,7 @@ class ConfigService {
   private apiBaseUrl: string =
     process.env.EXPO_PUBLIC_API_URL ||
     process.env.EXPO_PUBLIC_API_BASE_URL ||
-    'http://192.168.1.159:8080/api/v1';
+    'http://172.17.144.48:8080/api/v1';
   private useMockData: boolean = false; // Always call real API as requested
   private token: string | null = null;
   private refreshTokenVal: string | null = null;
