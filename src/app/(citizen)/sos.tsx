@@ -28,6 +28,7 @@ import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
 import { CallStatusResponse, EmergencyCall } from '@/types';
+import PaymentInvoiceModal from '@/components/PaymentInvoiceModal';
 import { EmergencyRecorder, RecorderStatus } from '@/components/EmergencyRecorder';
 
 const { width } = Dimensions.get('window');
@@ -72,6 +73,8 @@ export default function SOSScreen() {
   const [selectedCallStatus, setSelectedCallStatus] = useState<CallStatusResponse | null>(null);
   const [loadingStatusModal, setLoadingStatusModal] = useState<boolean>(false);
   const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
+  const [selectedInvoiceCallId, setSelectedInvoiceCallId] = useState<string | number | null>(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState<boolean>(false);
 
   // Animations
   const pulseSOSAnim = useRef(new Animated.Value(1)).current;
@@ -655,17 +658,28 @@ export default function SOSScreen() {
                         const lat = item.latitude?.toString() || item.location?.latitude?.toString() || '21.0091';
                         const lng = item.longitude?.toString() || item.location?.longitude?.toString() || '105.8247';
                         router.push({
-                          pathname: '/(citizen)/tracking',
-                          params: {
-                            lat,
-                            lng,
-                            id: String(item.id),
-                          },
-                        });
-                      }}
+                           pathname: '/(citizen)/tracking',
+                           params: {
+                             lat,
+                             lng,
+                             id: String(item.id),
+                           },
+                         });
+                       }}
                     >
                       <FontAwesome5 name="map-marked-alt" size={13} color="#022C22" />
                       <Text style={styles.trackBtnText}>THEO DÕI XE</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.invoiceBtn}
+                      onPress={() => {
+                        setSelectedInvoiceCallId(item.id);
+                        setShowInvoiceModal(true);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="receipt-text" size={14} color="#34D399" />
+                      <Text style={styles.invoiceBtnText}>HÓA ĐƠN</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -846,11 +860,30 @@ export default function SOSScreen() {
                       <FontAwesome5 name="map-marked-alt" size={16} color="#022C22" style={{ marginRight: 8 }} />
                       <Text style={styles.modalTrackBtnText}>MỞ BẢN ĐỒ THEO DÕI XE TRỰC TIẾP</Text>
                     </TouchableOpacity>
+
+                    {/* Invoice Button in Modal */}
+                    <TouchableOpacity
+                      style={styles.modalInvoiceBtn}
+                      onPress={() => {
+                        setSelectedInvoiceCallId(selectedCallId);
+                        setShowInvoiceModal(true);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="receipt-text-check" size={16} color="#10B981" style={{ marginRight: 8 }} />
+                      <Text style={styles.modalInvoiceBtnText}>XEM HÓA ĐƠN & CHI PHÍ CẤP CỨU</Text>
+                    </TouchableOpacity>
                   </ScrollView>
                 )}
               </View>
             </View>
           </Modal>
+
+          {/* Payment & Invoice Modal */}
+          <PaymentInvoiceModal
+            visible={showInvoiceModal}
+            onClose={() => setShowInvoiceModal(false)}
+            callId={selectedInvoiceCallId}
+          />
 
         </SafeAreaView>
       </LinearGradient>
@@ -1601,12 +1634,46 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 14,
     elevation: 4,
-    marginBottom: 20,
+    marginBottom: 10,
   },
   modalTrackBtnText: {
     color: '#022C22',
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 0.5,
+  },
+  modalInvoiceBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginBottom: 20,
+  },
+  modalInvoiceBtnText: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  invoiceBtn: {
+    flex: 0.9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  invoiceBtnText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '800',
   },
 });

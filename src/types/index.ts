@@ -612,3 +612,41 @@ export interface CallTrackingResponse {
 
   tracking?: TrackingUpdate | null;
 }
+
+// --- 7. PAYMENT & INVOICE TYPES (MOCK DATABASE & BILLING) ---
+export type PaymentStatus = 'UNPAID' | 'PAID' | 'REFUNDED';
+export type PaymentMethod = 'VIETQR' | 'VNPAY' | 'MOMO' | 'CASH';
+
+export interface PaymentInvoiceItem {
+  name: string;
+  quantity?: number;
+  unitPrice: number;
+  totalPrice: number;
+  isDiscount?: boolean;
+}
+
+export interface PaymentInvoice {
+  id: string;
+  invoiceCode: string;
+  callId: string | number;
+  requestId?: string | number | null;
+  missionId?: string | number | null;
+  patientName: string;
+  patientPhone: string;
+  pickupAddress: string;
+  hospitalAddress: string;
+  distanceKm: number;
+  vehicleType: string;
+  licensePlate: string;
+  items: PaymentInvoiceItem[];
+  subtotal: number;
+  discountAmount: number;
+  totalAmount: number;
+  paymentStatus: PaymentStatus;
+  paymentMethod?: PaymentMethod | null;
+  transactionRef?: string | null;
+  createdAt: string;
+  paidAt?: string | null;
+  qrCodeUrl?: string;
+  notes?: string;
+}

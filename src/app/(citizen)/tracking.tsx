@@ -16,6 +16,7 @@ import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-ico
 import { api } from '@/services/api';
 import { CallStatusResponse, CallTrackingResponse, EmergencyCall, LatLng } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
+import PaymentInvoiceModal from '@/components/PaymentInvoiceModal';
 
 type CaseStatus = 
   | 'PENDING' 
@@ -43,6 +44,7 @@ export default function TrackingScreen() {
   const [callStatusData, setCallStatusData] = useState<CallStatusResponse | null>(null);
   const [trackingData, setTrackingData] = useState<CallTrackingResponse | null>(null);
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
+  const [showInvoiceModal, setShowInvoiceModal] = useState<boolean>(false);
 
   const slideAnim = useRef(new Animated.Value(400)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -383,7 +385,41 @@ export default function TrackingScreen() {
             <Text style={styles.contactDriverText}>GỌI XE</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Invoice & Payment Button */}
+        <TouchableOpacity
+          style={[
+            styles.invoicePaymentBtn,
+            status === 'COMPLETED' && styles.invoicePaymentBtnCompleted,
+          ]}
+          onPress={() => setShowInvoiceModal(true)}
+          activeOpacity={0.85}
+        >
+          <MaterialCommunityIcons
+            name="receipt-text-check"
+            size={18}
+            color={status === 'COMPLETED' ? '#022C22' : '#38BDF8'}
+            style={{ marginRight: 8 }}
+          />
+          <Text
+            style={[
+              styles.invoicePaymentBtnText,
+              status === 'COMPLETED' && styles.invoicePaymentBtnTextCompleted,
+            ]}
+          >
+            {status === 'COMPLETED'
+              ? 'XEM HÓA ĐƠN & CHI PHÍ CẤP CỨU'
+              : 'XEM DỰ TÍNH VIỆN PHÍ & BHYT'}
+          </Text>
+        </TouchableOpacity>
       </Animated.View>
+
+      {/* Payment Invoice Modal */}
+      <PaymentInvoiceModal
+        visible={showInvoiceModal}
+        onClose={() => setShowInvoiceModal(false)}
+        callId={callId}
+      />
     </View>
   );
 }
@@ -661,5 +697,29 @@ const styles = StyleSheet.create({
     color: '#34D399',
     fontSize: 10,
     fontWeight: '800',
+  },
+  invoicePaymentBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  invoicePaymentBtnCompleted: {
+    backgroundColor: '#10B981',
+    borderColor: '#059669',
+  },
+  invoicePaymentBtnText: {
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  invoicePaymentBtnTextCompleted: {
+    color: '#022C22',
   },
 });
