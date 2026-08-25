@@ -1,5 +1,5 @@
 import { api } from '@/services/api';
-import { mapApiRoleToLocal } from '@/services/config';
+import { extractUserRoles, mapApiRoleToLocal } from '@/services/config';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -61,16 +61,15 @@ export default function AuthScreen() {
       
       const loginData = await api.login(loginUsername.trim(), loginPassword);
       
-      console.log('[Login] Login api returned, roles:', loginData?.roles);
+      console.log('[Login] Login api returned:', loginData);
       
       if (!loginData) {
         throw new Error('Không nhận được dữ liệu từ server');
       }
-      if (!loginData.roles || loginData.roles.length === 0) {
-        throw new Error('Tài khoản này chưa được phân quyền');
-      }
 
-      const role = mapApiRoleToLocal(loginData.roles[0]);
+      const roles = extractUserRoles(loginData);
+      const firstRole = roles[0] || 'REPORTER';
+      const role = mapApiRoleToLocal(firstRole);
       console.log('[Login] Mapped role:', role, '| fullName:', loginData.fullName);
       
       let targetRoute: any = '/(citizen)/sos';

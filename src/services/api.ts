@@ -170,22 +170,28 @@ class ApiService {
   // --- 1. AUTHENTICATION ---
   
   async login(username: string, password: string) {
-    const data = await this.request<{
-      accessToken: string;
-      refreshToken: string;
-      tokenType: string;
-      expiresIn: number;
-      userId: number;
-      username: string;
-      fullName: string;
-      roles: string[];
-      phoneNumber?: string;
-    }>('/auth/login', {
+    const trimmedUser = username.trim();
+    const data = await this.request<any>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ 
+        username: trimmedUser,
+        password: password,
+        identity: trimmedUser,
+        phoneNumber: trimmedUser,
+        phone: trimmedUser,
+        email: trimmedUser,
+        account: trimmedUser,
+      }),
     });
-    globalConfig.setToken(data.accessToken);
-    globalConfig.setRefreshToken(data.refreshToken);
+
+    const token = data?.accessToken || data?.token || data?.jwt || data?.access_token || '';
+    const refreshToken = data?.refreshToken || data?.refresh_token || '';
+    if (token) {
+      globalConfig.setToken(token);
+    }
+    if (refreshToken) {
+      globalConfig.setRefreshToken(refreshToken);
+    }
     globalConfig.setCurrentUser(data);
     return data;
   }

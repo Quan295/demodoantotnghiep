@@ -1,15 +1,46 @@
 import { Role, User } from '@/types';
 
-// Map API role strings to our Role type
+// Extract roles safely from API response (array, string, authorities)
+export const extractUserRoles = (data: any): string[] => {
+  if (!data) return [];
+  if (Array.isArray(data.roles) && data.roles.length > 0) {
+    return data.roles.map(String);
+  }
+  if (typeof data.roles === 'string' && data.roles) {
+    return [data.roles];
+  }
+  if (typeof data.role === 'string' && data.role) {
+    return [data.role];
+  }
+  if (Array.isArray(data.authorities) && data.authorities.length > 0) {
+    return data.authorities
+      .map((a: any) => (typeof a === 'string' ? a : a?.authority))
+      .filter(Boolean);
+  }
+  return [];
+};
+
+// Map API role strings to our Role type (handles ROLE_ prefix from Spring Boot Security)
 export const mapApiRoleToLocal = (apiRole: string): Role => {
-  switch (apiRole.toUpperCase()) {
-    case 'REPORTER': return 'reporter';
-    case 'DRIVER': return 'driver';
-    case 'DISPATCHER': return 'dispatcher';
-    case 'ADMIN': return 'admin';
+  const r = (apiRole || '').toUpperCase().replace(/^ROLE_/, '').trim();
+  switch (r) {
+    case 'DRIVER':
+      return 'driver';
+    case 'DISPATCHER':
+      return 'dispatcher';
+    case 'ADMIN':
+    case 'SUPER_ADMIN':
+    case 'SYSTEM_ADMIN':
+      return 'admin';
     case 'PROVIDER':
-    case 'PROVIDER_ADMIN': return 'provider';
-    default: return 'reporter';
+    case 'PROVIDER_ADMIN':
+    case 'HOSPITAL':
+      return 'provider';
+    case 'REPORTER':
+    case 'CITIZEN':
+    case 'USER':
+    default:
+      return 'reporter';
   }
 };
 
