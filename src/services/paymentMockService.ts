@@ -1,4 +1,4 @@
-import { PaymentInvoice, PaymentMethod, PaymentStatus } from '@/types';
+import { DriverTripEarning, PaymentInvoice, PaymentMethod, PaymentStatus } from '@/types';
 
 /**
  * Mock Database lưu trữ dữ liệu Hóa đơn & Thanh toán viện phí / xe cấp cứu
@@ -139,6 +139,49 @@ export const paymentMockService = {
 
     invoicesDatabase[key] = updated;
     return updated;
+  },
+
+  /**
+   * Lấy chi tiết thu nhập & trạng thái thu cước theo cuốc cho Tài xế (Driver Trip Earning)
+   */
+  getDriverTripEarning(missionId: string | number, extra?: Partial<DriverTripEarning>): DriverTripEarning {
+    const numId = Number(missionId) || 1;
+    const distanceKm = Number((3.5 + (numId % 5) * 1.2).toFixed(1));
+    const baseEarning = 120000; // Thù lao mở cuốc cố định
+    const distanceEarning = Math.round(distanceKm * 15000); // 15.000đ/km
+    const emergencyAllowance = 50000; // Phụ cấp kíp trực / khẩn cấp
+    const driverTotalEarned = baseEarning + distanceEarning + emergencyAllowance;
+    const totalTripFare = 250000 + Math.round(distanceKm * 25000) + 180000 - 165000;
+
+    return {
+      missionId,
+      requestId: extra?.requestId ?? (numId > 5 ? numId + 9 : numId),
+      callId: extra?.callId ?? (numId > 5 ? numId + 91 : numId),
+      distanceKm,
+      totalTripFare,
+      baseEarning,
+      distanceEarning,
+      emergencyAllowance,
+      driverTotalEarned,
+      collectionStatus: extra?.collectionStatus || 'PAID_DIGITAL',
+      collectedAmount: totalTripFare,
+      collectedAt: new Date().toISOString(),
+      settledToWallet: true,
+      ...extra,
+    };
+  },
+
+  /**
+   * Tài xế xác nhận đã thu tiền mặt trực tiếp từ người nhà bệnh nhân
+   */
+  async confirmDriverCashCollection(missionId: string | number, amount: number): Promise<DriverTripEarning> {
+    const earning = this.getDriverTripEarning(missionId, {
+      collectionStatus: 'COLLECTED_CASH',
+      collectedAmount: amount,
+      collectedAt: new Date().toISOString(),
+      settledToWallet: true,
+    });
+    return earning;
   },
 
   /**

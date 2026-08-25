@@ -650,3 +650,22 @@ export interface PaymentInvoice {
   qrCodeUrl?: string;
   notes?: string;
 }
+
+// --- 8. DRIVER TRIP EARNINGS (THU NHẬP & THU TIỀN THEO CUỐC CHO TÀI XẾ) ---
+export type DriverCollectionStatus = 'COLLECTED_CASH' | 'PAID_DIGITAL' | 'PENDING';
+
+export interface DriverTripEarning {
+  missionId: string | number;
+  requestId?: string | number | null;
+  callId?: string | number | null;
+  distanceKm: number;
+  totalTripFare: number;
+  baseEarning: number;
+  distanceEarning: number;
+  emergencyAllowance: number;
+  driverTotalEarned: number;
+  collectionStatus: DriverCollectionStatus;
+  collectedAmount?: number;
+  collectedAt?: string | null;
+  settledToWallet: boolean;
+}

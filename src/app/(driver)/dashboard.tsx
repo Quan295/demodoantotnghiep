@@ -38,6 +38,8 @@ import {
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 import { useDriverLocationTracking } from '@/hooks/useDriverLocationTracking';
+import { paymentMockService } from '@/services/paymentMockService';
+import DriverTripEarningModal from '@/components/DriverTripEarningModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -73,6 +75,8 @@ export default function DriverDashboard() {
   const [selectedDetailMission, setSelectedDetailMission] = useState<DispatchMission | null>(null);
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
+  const [selectedEarningMission, setSelectedEarningMission] = useState<DispatchMission | null>(null);
+  const [showTripEarningModal, setShowTripEarningModal] = useState<boolean>(false);
 
   // Reusable Single Source of Truth Driver Location Tracking
   const shouldTrack = autoSyncEnabled || !!activeRunningMission;
@@ -689,6 +693,20 @@ export default function DriverDashboard() {
                       </Text>
                     ) : null}
 
+                    {(() => {
+                      const earning = paymentMockService.getDriverTripEarning(item.id, {
+                        requestId: item.requestId,
+                      });
+                      return (
+                        <View style={styles.tripEarningPill}>
+                          <MaterialCommunityIcons name="cash-plus" size={14} color="#10B981" />
+                          <Text style={styles.tripEarningPillText}>
+                            Thù lao cuốc: +{paymentMockService.formatCurrency(earning.driverTotalEarned)}
+                          </Text>
+                        </View>
+                      );
+                    })()}
+
                     <View style={styles.missionMetaRow}>
                       <Text style={styles.missionMetaItem}>
                         <Ionicons name="time-outline" size={12} color="#64748B" /> {formattedTime}
@@ -701,7 +719,18 @@ export default function DriverDashboard() {
                         onPress={() => handleOpenMissionDetail(item)}
                       >
                         <Ionicons name="document-text-outline" size={14} color="#38BDF8" />
-                        <Text style={styles.viewDetailMissionBtnText}>XEM CHI TIẾT</Text>
+                        <Text style={styles.viewDetailMissionBtnText}>CHI TIẾT</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.tripEarningBtn}
+                        onPress={() => {
+                          setSelectedEarningMission(item);
+                          setShowTripEarningModal(true);
+                        }}
+                      >
+                        <MaterialCommunityIcons name="cash-multiple" size={14} color="#10B981" />
+                        <Text style={styles.tripEarningBtnText}>THÙ LAO CUỐC</Text>
                       </TouchableOpacity>
 
                       {['DISPATCHED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL'].includes(item.status) && (
@@ -871,11 +900,31 @@ export default function DriverDashboard() {
                         <TimelineRow label="Đã hủy (Cancelled):" time={selectedDetailMission?.cancelledAt} />
                       ) : null}
                     </View>
+
+                    {/* Driver Trip Earning Button in Modal */}
+                    <TouchableOpacity
+                      style={styles.modalEarningBtn}
+                      onPress={() => {
+                        setSelectedEarningMission(selectedDetailMission);
+                        setShowTripEarningModal(true);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="cash-multiple" size={16} color="#10B981" style={{ marginRight: 8 }} />
+                      <Text style={styles.modalEarningBtnText}>BẢNG KÊ THÙ LAO & THU CƯỚC CUỐC NÀY</Text>
+                    </TouchableOpacity>
                   </ScrollView>
                 )}
               </View>
             </View>
           </Modal>
+
+          {/* Driver Trip Earning Modal */}
+          <DriverTripEarningModal
+            visible={showTripEarningModal}
+            onClose={() => setShowTripEarningModal(false)}
+            missionId={selectedEarningMission?.id}
+            requestId={selectedEarningMission?.requestId}
+          />
 
           {/* INCOMING MISSION POPUP MODAL (POST /accept & POST /reject) */}
           <Animated.View style={[styles.incomingOrderSheet, { transform: [{ translateY: slideAnim }] }]}>
@@ -1543,17 +1592,34 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 10,
   },
+  tripEarningPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 8,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    marginBottom: 6,
+  },
+  tripEarningPillText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   missionCardActions: {
     flexDirection: 'row',
     gap: 8,
     paddingTop: 8,
   },
   viewDetailMissionBtn: {
-    flex: 1,
+    flex: 0.9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
     paddingVertical: 8,
     borderRadius: 8,
@@ -1564,6 +1630,41 @@ const styles = StyleSheet.create({
     color: '#38BDF8',
     fontSize: 10,
     fontWeight: '800',
+  },
+  tripEarningBtn: {
+    flex: 1.1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  tripEarningBtnText: {
+    color: '#34D399',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  modalEarningBtn: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    paddingVertical: 13,
+    borderRadius: 14,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  modalEarningBtnText: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   resumeMissionBtn: {
     flex: 1,
