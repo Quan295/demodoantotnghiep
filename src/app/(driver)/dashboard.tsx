@@ -80,6 +80,14 @@ export default function DriverDashboard() {
 
   // Reusable Single Source of Truth Driver Location Tracking
   const shouldTrack = autoSyncEnabled || !!activeRunningMission;
+  const dbLocation: LatLng | undefined =
+    typeof driverResource?.latitude === 'number' &&
+    typeof driverResource?.longitude === 'number' &&
+    !isNaN(driverResource.latitude) &&
+    !isNaN(driverResource.longitude)
+      ? { lat: driverResource.latitude, lng: driverResource.longitude }
+      : undefined;
+
   const {
     position: currentPos,
     latitude: currentLat,
@@ -88,6 +96,7 @@ export default function DriverDashboard() {
     heading: currentHeading,
     accuracy: currentAccuracy,
     gpsStatus,
+    hasRealGps,
     lastSyncedAt,
     syncError,
     syncInProgress,
@@ -97,6 +106,7 @@ export default function DriverDashboard() {
     missionId: activeRunningMission?.id,
     timeInterval: 3000,
     distanceInterval: 5,
+    dbLocation,
   });
 
   // GPS Logs List (Local session logs only)
@@ -104,7 +114,7 @@ export default function DriverDashboard() {
 
   // Log session updates when synced
   useEffect(() => {
-    if (lastSyncedAt) {
+    if (lastSyncedAt && currentLat != null && currentLng != null) {
       const newLog: LocationSyncLog = {
         id: `log-${Date.now()}-${Math.random().toString(36).substring(7)}`,
         time: lastSyncedAt,
@@ -122,7 +132,7 @@ export default function DriverDashboard() {
       const errLog: LocationSyncLog = {
         id: `log-err-${Date.now()}`,
         time: new Date().toLocaleTimeString('vi-VN'),
-        coords: `${currentLat.toFixed(6)}° N, ${currentLng.toFixed(6)}° E`,
+        coords: currentLat != null && currentLng != null ? `${currentLat.toFixed(6)}° N, ${currentLng.toFixed(6)}° E` : 'Chưa có GPS',
         speed: currentSpeed,
         status: `Đồng bộ thất bại: ${syncError}`,
         source: 'AUTO_GPS',
@@ -231,7 +241,7 @@ export default function DriverDashboard() {
       if (success) {
         Alert.alert(
           'Đã Cập Nhật Vị Trí',
-          `Vị trí xe cứu thương đã được đồng bộ lên máy chủ thành công!\n\nTọa độ: ${currentLat.toFixed(6)}, ${currentLng.toFixed(6)}\nThời gian: ${lastSyncedAt || new Date().toLocaleTimeString('vi-VN')}`
+          `Vị trí xe cứu thương đã được đồng bộ lên máy chủ thành công!\n\nTọa độ: ${currentLat != null ? currentLat.toFixed(6) : '---'}, ${currentLng != null ? currentLng.toFixed(6) : '---'}\nThời gian: ${lastSyncedAt || new Date().toLocaleTimeString('vi-VN')}`
         );
       } else {
         Alert.alert('Thông báo', syncError || 'Chưa thể đồng bộ vị trí, vui lòng kiểm tra kết nối GPS và mạng.');
@@ -353,10 +363,7 @@ export default function DriverDashboard() {
   const vehicleType = driverResource?.resourceType || 'Chưa có thông tin loại xe';
   const licensePlate = getResourceLicensePlate(driverResource);
 
-  const mapAmbulanceLocation: LatLng = {
-    lat: currentLat,
-    lng: currentLng,
-  };
+  const mapAmbulanceLocation: LatLng | undefined = currentPos || dbLocation;
 
   return (
     <View style={styles.container}>
@@ -593,11 +600,11 @@ export default function DriverDashboard() {
                 <View style={styles.coordsGrid}>
                   <View style={styles.coordBox}>
                     <Text style={styles.coordLabel}>VĨ ĐỘ (LATITUDE)</Text>
-                    <Text style={styles.coordValue}>{currentLat.toFixed(6)}° N</Text>
+                    <Text style={styles.coordValue}>{currentLat != null ? `${currentLat.toFixed(6)}° N` : 'Chưa có'}</Text>
                   </View>
                   <View style={styles.coordBox}>
                     <Text style={styles.coordLabel}>KINH ĐỘ (LONGITUDE)</Text>
-                    <Text style={styles.coordValue}>{currentLng.toFixed(6)}° E</Text>
+                    <Text style={styles.coordValue}>{currentLng != null ? `${currentLng.toFixed(6)}° E` : 'Chưa có'}</Text>
                   </View>
                 </View>
 
@@ -634,13 +641,13 @@ export default function DriverDashboard() {
 
                 <View style={styles.mapFrame}>
                   <AmbulanceMap
-                    victimLocation={currentPos}
-                    ambulanceLocation={currentPos}
+                    victimLocation={activeRunningMission ? { lat: (activeRunningMission as any).incidentLatitude ?? (activeRunningMission as any).latitude, lng: (activeRunningMission as any).incidentLongitude ?? (activeRunningMission as any).longitude } : undefined}
+                    ambulanceLocation={currentPos || dbLocation}
                   />
                   <View style={styles.mapOverlayPill}>
-                    <View style={styles.pulseDot} />
+                    <View style={[styles.pulseDot, !hasRealGps && { backgroundColor: '#38BDF8' }]} />
                     <Text style={styles.mapOverlayText}>
-                      {licensePlate} • {currentLat.toFixed(4)}, {currentLng.toFixed(4)}
+                      {licensePlate} • {currentLat && currentLng ? `${currentLat.toFixed(4)}, ${currentLng.toFixed(4)}` : 'Đang lấy tọa độ máy chủ'} {hasRealGps ? '(GPS)' : '(Vị trí DB)'}
                     </Text>
                   </View>
                 </View>

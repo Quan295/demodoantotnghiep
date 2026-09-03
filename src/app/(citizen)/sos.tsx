@@ -98,25 +98,22 @@ export default function SOSScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Cấp quyền vị trí', 'Vui lòng cấp quyền định vị GPS để đội cấp cứu xác định vị trí của bạn.');
+        Alert.alert('Cấp quyền vị trí', 'Vui lòng cấp quyền định vị GPS để đội cấp cứu xác định vị trí hiện trường của bạn.');
+        setLocation(null);
+        return;
+      }
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        Alert.alert('Chưa bật GPS', 'Vui lòng bật dịch vụ định vị (Vị trí/GPS) trên thiết bị.');
+        setLocation(null);
         return;
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       setLocation(loc);
     } catch (error) {
       console.warn('Location error:', error);
-      setLocation({
-        coords: {
-          latitude: 21.0091,
-          longitude: 105.8247,
-          altitude: null,
-          accuracy: 5,
-          altitudeAccuracy: null,
-          heading: null,
-          speed: null,
-        },
-        timestamp: Date.now(),
-      });
+      // Tuyệt đối không tự tạo dữ liệu giả lưu vào DB
+      setLocation(null);
     } finally {
       setLocationLoading(false);
     }
@@ -128,9 +125,15 @@ export default function SOSScreen() {
 
   // 1. API: POST /calls/sos (Gửi định vị cấp cứu 1-chạm)
   const handleSOS = async () => {
-    if (!location) {
-      Alert.alert('Chưa có vị trí', 'Hệ thống đang định vị GPS. Vui lòng bấm lấy lại vị trí.');
-      getCurrentLocation();
+    if (!location?.coords?.latitude || !location?.coords?.longitude) {
+      Alert.alert(
+        'Chưa có tọa độ GPS',
+        'Vui lòng bật GPS trên máy và bấm "Định vị lại" để hệ thống xác định vị trí hiện trường chính xác.',
+        [
+          { text: 'Lấy lại vị trí', onPress: () => getCurrentLocation() },
+          { text: 'Đóng', style: 'cancel' }
+        ]
+      );
       return;
     }
 
@@ -655,13 +658,13 @@ export default function SOSScreen() {
                     <TouchableOpacity
                       style={styles.trackBtn}
                       onPress={() => {
-                        const lat = item.latitude?.toString() || item.location?.latitude?.toString() || '21.0091';
-                        const lng = item.longitude?.toString() || item.location?.longitude?.toString() || '105.8247';
+                        const lat = item.latitude?.toString() || item.location?.latitude?.toString();
+                        const lng = item.longitude?.toString() || item.location?.longitude?.toString();
                         router.push({
                            pathname: '/(citizen)/tracking',
                            params: {
-                             lat,
-                             lng,
+                             ...(lat ? { lat } : {}),
+                             ...(lng ? { lng } : {}),
                              id: String(item.id),
                            },
                          });

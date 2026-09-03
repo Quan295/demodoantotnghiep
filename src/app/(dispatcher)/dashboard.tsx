@@ -56,8 +56,8 @@ export default function DispatcherDashboard() {
           address: c.location?.address || 'Tọa độ khẩn cấp',
           priority: c.priority === 'critical' ? 'Khẩn cấp' : c.priority === 'high' ? 'Cao' : 'Trung bình',
           coordinates: { 
-            latitude: c.location?.lat || (21.015 + latOffset), 
-            longitude: c.location?.lng || (105.82 + lngOffset) 
+            latitude: (c.latitude ?? c.incidentLatitude ?? c.location?.latitude ?? c.location?.lat) || (21.015 + latOffset), 
+            longitude: (c.longitude ?? c.incidentLongitude ?? c.location?.longitude ?? c.location?.lng) || (105.82 + lngOffset) 
           },
         };
       });

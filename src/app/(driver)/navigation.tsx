@@ -46,6 +46,14 @@ export default function NavigationScreen() {
   const [showEarningModal, setShowEarningModal] = useState<boolean>(false);
 
   // Continuous Real-time Driver GPS Tracking (Single Source of Truth)
+  const dbDriverLocation: LatLng | undefined =
+    typeof driverResource?.latitude === 'number' &&
+    typeof driverResource?.longitude === 'number' &&
+    !isNaN(driverResource.latitude) &&
+    !isNaN(driverResource.longitude)
+      ? { lat: driverResource.latitude, lng: driverResource.longitude }
+      : undefined;
+
   const {
     position: driverPos,
     latitude: currentLat,
@@ -53,6 +61,7 @@ export default function NavigationScreen() {
     speed: currentSpeed,
     accuracy: currentAccuracy,
     gpsStatus,
+    hasRealGps,
     lastSyncedAt,
     syncError,
     syncInProgress,
@@ -62,6 +71,7 @@ export default function NavigationScreen() {
     missionId,
     timeInterval: 3000,
     distanceInterval: 5,
+    dbLocation: dbDriverLocation,
   });
 
   // Load Mission Details (GET /dispatch-missions/me/{missionId}) & Resource
@@ -256,7 +266,12 @@ export default function NavigationScreen() {
   };
 
   const openExternalMap = () => {
-    const latLng = `${driverPos.lat},${driverPos.lng}`;
+    const pos = driverPos || dbDriverLocation;
+    if (!pos) {
+      Alert.alert('Thông báo', 'Chưa có tọa độ vị trí xe');
+      return;
+    }
+    const latLng = `${pos.lat},${pos.lng}`;
     const targetLabel = destinationName;
     const url = Platform.select({
       ios: `maps:0,0?q=${encodeURIComponent(targetLabel)}@${latLng}`,
@@ -384,7 +399,7 @@ export default function NavigationScreen() {
           <AmbulanceMap
             victimLocation={incidentLocation}
             hospitalLocation={hospitalLocation}
-            ambulanceLocation={driverPos}
+            ambulanceLocation={driverPos || dbDriverLocation}
             destinationType={isTransportingPhase ? 'HOSPITAL' : 'SCENE'}
             followAmbulance={true}
           />

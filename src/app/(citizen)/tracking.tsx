@@ -31,8 +31,8 @@ export default function TrackingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  const victimLat = params.lat ? parseFloat(params.lat as string) : 21.0091;
-  const victimLng = params.lng ? parseFloat(params.lng as string) : 105.8247;
+  const paramLat = params.lat ? parseFloat(params.lat as string) : undefined;
+  const paramLng = params.lng ? parseFloat(params.lng as string) : undefined;
   const callId = params.id as string | undefined;
 
   const [status, setStatus] = useState<CaseStatus>('PENDING');
@@ -217,7 +217,24 @@ export default function TrackingScreen() {
     });
   };
 
-  const victimLocation: LatLng = { lat: victimLat, lng: victimLng };
+  // Lấy tọa độ hiện trường ưu tiên từ DB (trackingData, callDetail, params)
+  const trackingAny = trackingData as any;
+  const resolvedVictimLat =
+    (typeof trackingAny?.incidentLatitude === 'number' && !isNaN(trackingAny.incidentLatitude) ? trackingAny.incidentLatitude : null) ??
+    (typeof callDetail?.latitude === 'number' && !isNaN(callDetail.latitude) ? callDetail.latitude : null) ??
+    (typeof (callDetail as any)?.location?.latitude === 'number' ? (callDetail as any).location.latitude : null) ??
+    (typeof paramLat === 'number' && !isNaN(paramLat) ? paramLat : null);
+
+  const resolvedVictimLng =
+    (typeof trackingAny?.incidentLongitude === 'number' && !isNaN(trackingAny.incidentLongitude) ? trackingAny.incidentLongitude : null) ??
+    (typeof callDetail?.longitude === 'number' && !isNaN(callDetail.longitude) ? callDetail.longitude : null) ??
+    (typeof (callDetail as any)?.location?.longitude === 'number' ? (callDetail as any).location.longitude : null) ??
+    (typeof paramLng === 'number' && !isNaN(paramLng) ? paramLng : null);
+
+  const victimLocation: LatLng | undefined =
+    typeof resolvedVictimLat === 'number' && typeof resolvedVictimLng === 'number'
+      ? { lat: resolvedVictimLat, lng: resolvedVictimLng }
+      : undefined;
 
   const getStatusColor = (s: 'STEP_1' | 'STEP_2' | 'STEP_3' | 'STEP_4') => {
     switch (s) {

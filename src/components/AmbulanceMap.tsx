@@ -2,7 +2,39 @@ import { LatLng } from '@/types';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
-import MapView, { Circle, Marker, Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, UrlTile, PROVIDER_GOOGLE } from 'react-native-maps';
+
+class MapErrorBoundary extends React.Component<
+  { fallback?: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any, info: any) {
+    console.warn('[AmbulanceMap] Map rendering failed:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        this.props.fallback || (
+          <View style={styles.errorFallbackContainer}>
+            <MaterialCommunityIcons name="map-marker-alert" size={36} color="#F04438" />
+            <Text style={styles.errorFallbackTitle}>Không thể tải bản đồ</Text>
+            <Text style={styles.errorFallbackSubtitle}>
+              Vui lòng kiểm tra Google Maps API Key và kết nối mạng
+            </Text>
+          </View>
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export interface AmbulanceMapProps {
   victimLocation?: LatLng;
@@ -27,8 +59,9 @@ export default function AmbulanceMap({
   const targetLocation = destinationType === 'HOSPITAL' && hospitalLocation ? hospitalLocation : victimLocation;
 
   const initialRegion = useMemo(() => {
-    const centerLat = targetLocation?.lat ?? ambulanceLocation?.lat ?? 21.0091;
-    const centerLng = targetLocation?.lng ?? ambulanceLocation?.lng ?? 105.8247;
+    // Ưu tiên vị trí xe hoặc vị trí sự cố từ DB
+    const centerLat = targetLocation?.lat ?? ambulanceLocation?.lat ?? 21.0285;
+    const centerLng = targetLocation?.lng ?? ambulanceLocation?.lng ?? 105.8542;
 
     if (targetLocation && ambulanceLocation) {
       const minLat = Math.min(targetLocation.lat, ambulanceLocation.lat);
@@ -51,21 +84,23 @@ export default function AmbulanceMap({
     };
   }, [targetLocation, ambulanceLocation]);
 
-  // Smooth camera animate when ambulance moves without overriding user manual drag
+  // Tự động focus camera vào vị trí xe từ DB hoặc GPS khi dữ liệu được nạp
   useEffect(() => {
-    if (!followAmbulance || !ambulanceLocation || !mapRef.current) return;
+    if (!mapRef.current) return;
+    const focusTarget = (followAmbulance && ambulanceLocation) ? ambulanceLocation : targetLocation;
+    if (!focusTarget) return;
     try {
       mapRef.current.animateToRegion(
         {
-          latitude: ambulanceLocation.lat,
-          longitude: ambulanceLocation.lng,
+          latitude: focusTarget.lat,
+          longitude: focusTarget.lng,
           latitudeDelta: 0.012,
           longitudeDelta: 0.012,
         },
         800
       );
     } catch {}
-  }, [ambulanceLocation?.lat, ambulanceLocation?.lng, followAmbulance]);
+  }, [ambulanceLocation?.lat, ambulanceLocation?.lng, targetLocation?.lat, targetLocation?.lng, followAmbulance]);
 
   const polylineCoords = useMemo(() => {
     if (route && route.length > 0) {
@@ -85,90 +120,93 @@ export default function AmbulanceMap({
 
   return (
     <View style={[styles.container, style]}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={initialRegion}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        showsPointsOfInterest={false}
-        showsBuildings={false}
-        showsCompass={false}
-        showsScale={false}
-        showsTraffic={false}
-        showsIndoors={false}
-      >
-        {/* OSM Custom Dark Tiles */}
-        <UrlTile
-          urlTemplate={tileUrl}
-          maximumZ={19}
-          minimumZ={3}
-          tileSize={256}
-          opacity={1}
-          zIndex={1}
-        />
+      <MapErrorBoundary>
+        <MapView
+          ref={mapRef}
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          style={styles.map}
+          initialRegion={initialRegion}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          showsPointsOfInterest={false}
+          showsBuildings={false}
+          showsCompass={false}
+          showsScale={false}
+          showsTraffic={false}
+          showsIndoors={false}
+        >
+          {/* OSM Custom Dark Tiles */}
+          <UrlTile
+            urlTemplate={tileUrl}
+            maximumZ={19}
+            minimumZ={3}
+            tileSize={256}
+            opacity={1}
+            zIndex={1}
+          />
 
-        {/* Destination: Incident Scene (Victim) or Hospital */}
-        {targetLocation && (
-          destinationType === 'HOSPITAL' ? (
-            <Marker
-              coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={10}
-            >
-              <View style={styles.hospitalMarker}>
-                <MaterialCommunityIcons name="hospital-building" size={16} color="#FFF" />
-              </View>
-            </Marker>
-          ) : (
-            <>
-              <Circle
-                center={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
-                radius={70}
-                strokeWidth={2}
-                strokeColor="rgba(240,68,56,0.6)"
-                fillColor="rgba(240,68,56,0.08)"
-                zIndex={5}
-              />
+          {/* Destination: Incident Scene (Victim) or Hospital */}
+          {targetLocation && (
+            destinationType === 'HOSPITAL' ? (
               <Marker
                 coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={10}
               >
-                <View style={styles.victimMarkerOuter}>
-                  <View style={styles.victimPingA} />
-                  <View style={styles.victimPingB} />
-                  <View style={styles.victimMarkerInner} />
+                <View style={styles.hospitalMarker}>
+                  <MaterialCommunityIcons name="hospital-building" size={16} color="#FFF" />
                 </View>
               </Marker>
-            </>
-          )
-        )}
+            ) : (
+              <>
+                <Circle
+                  center={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                  radius={70}
+                  strokeWidth={2}
+                  strokeColor="rgba(240,68,56,0.6)"
+                  fillColor="rgba(240,68,56,0.08)"
+                  zIndex={5}
+                />
+                <Marker
+                  coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  zIndex={10}
+                >
+                  <View style={styles.victimMarkerOuter}>
+                    <View style={styles.victimPingA} />
+                    <View style={styles.victimPingB} />
+                    <View style={styles.victimMarkerInner} />
+                  </View>
+                </Marker>
+              </>
+            )
+          )}
 
-        {/* Ambulance Marker & Dynamic Route */}
-        {ambulanceLocation && (
-          <>
-            <Marker
-              coordinate={{ latitude: ambulanceLocation.lat, longitude: ambulanceLocation.lng }}
-              anchor={{ x: 0.5, y: 0.5 }}
-              zIndex={20}
-            >
-              <View style={styles.ambulanceMarker}>
-                <FontAwesome5 name="ambulance" size={13} color="#FFF" />
-              </View>
-            </Marker>
-            {polylineCoords.length > 0 && (
-              <Polyline
-                coordinates={polylineCoords}
-                strokeColor={destinationType === 'HOSPITAL' ? '#38BDF8' : '#F04438'}
-                strokeWidth={4}
-                lineDashPattern={[6, 8]}
-                zIndex={8}
-              />
-            )}
-          </>
-        )}
-      </MapView>
+          {/* Ambulance Marker & Dynamic Route */}
+          {ambulanceLocation && (
+            <>
+              <Marker
+                coordinate={{ latitude: ambulanceLocation.lat, longitude: ambulanceLocation.lng }}
+                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={20}
+              >
+                <View style={styles.ambulanceMarker}>
+                  <FontAwesome5 name="ambulance" size={13} color="#FFF" />
+                </View>
+              </Marker>
+              {polylineCoords.length > 0 && (
+                <Polyline
+                  coordinates={polylineCoords}
+                  strokeColor={destinationType === 'HOSPITAL' ? '#38BDF8' : '#F04438'}
+                  strokeWidth={4}
+                  lineDashPattern={[6, 8]}
+                  zIndex={8}
+                />
+              )}
+            </>
+          )}
+        </MapView>
+      </MapErrorBoundary>
     </View>
   );
 }
@@ -241,5 +279,28 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 8,
     elevation: 6,
+  },
+  errorFallbackContainer: {
+    flex: 1,
+    backgroundColor: '#0D1117',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(240, 68, 56, 0.2)',
+    borderRadius: 12,
+  },
+  errorFallbackTitle: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 10,
+  },
+  errorFallbackSubtitle: {
+    color: '#98A2B3',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 6,
+    lineHeight: 16,
   },
 });
