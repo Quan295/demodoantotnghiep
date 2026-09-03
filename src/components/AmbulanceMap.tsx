@@ -2,7 +2,7 @@ import { LatLng } from '@/types';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef } from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
-import MapView, { Circle, Marker, Polyline, UrlTile, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
 class MapErrorBoundary extends React.Component<
   { fallback?: React.ReactNode; children: React.ReactNode },
@@ -46,6 +46,41 @@ export interface AmbulanceMapProps {
   followAmbulance?: boolean;
 }
 
+// Hàm kiểm tra tính hợp lệ tuyệt đối của tọa độ để tránh crash Native Android
+const isValidCoord = (c?: LatLng | null): c is LatLng => {
+  return !!(
+    c &&
+    typeof c.lat === 'number' &&
+    typeof c.lng === 'number' &&
+    !isNaN(c.lat) &&
+    !isNaN(c.lng) &&
+    c.lat >= -90 &&
+    c.lat <= 90 &&
+    c.lng >= -180 &&
+    c.lng <= 180
+  );
+};
+
+// Kiểu bản đồ tối (Dark Mode) chuẩn Google Maps native, không cần dùng tile ngoài, không bao giờ dính watermark API KEY REQUIRED
+const darkMapStyle = [
+  { elementType: 'geometry', stylers: [{ color: '#181e28' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#181e28' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#cbd5e1' }] },
+  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#cbd5e1' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#273549' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1e293b' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1e293b' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f8fafc' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0b1120' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#475569' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#0f172a' }] }
+];
+
 export default function AmbulanceMap({
   victimLocation,
   ambulanceLocation,
@@ -56,23 +91,29 @@ export default function AmbulanceMap({
   followAmbulance = true,
 }: AmbulanceMapProps) {
   const mapRef = useRef<MapView | null>(null);
-  const targetLocation = destinationType === 'HOSPITAL' && hospitalLocation ? hospitalLocation : victimLocation;
+
+  const rawTarget = destinationType === 'HOSPITAL' && hospitalLocation ? hospitalLocation : victimLocation;
+  const validTarget = isValidCoord(rawTarget) ? rawTarget : undefined;
+  const validAmbulance = isValidCoord(ambulanceLocation) ? ambulanceLocation : undefined;
 
   const initialRegion = useMemo(() => {
     // Ưu tiên vị trí xe hoặc vị trí sự cố từ DB
-    const centerLat = targetLocation?.lat ?? ambulanceLocation?.lat ?? 21.0285;
-    const centerLng = targetLocation?.lng ?? ambulanceLocation?.lng ?? 105.8542;
+    const centerLat = validTarget?.lat ?? validAmbulance?.lat ?? 21.0285;
+    const centerLng = validTarget?.lng ?? validAmbulance?.lng ?? 105.8542;
 
-    if (targetLocation && ambulanceLocation) {
-      const minLat = Math.min(targetLocation.lat, ambulanceLocation.lat);
-      const maxLat = Math.max(targetLocation.lat, ambulanceLocation.lat);
-      const minLng = Math.min(targetLocation.lng, ambulanceLocation.lng);
-      const maxLng = Math.max(targetLocation.lng, ambulanceLocation.lng);
+    if (validTarget && validAmbulance) {
+      const minLat = Math.min(validTarget.lat, validAmbulance.lat);
+      const maxLat = Math.max(validTarget.lat, validAmbulance.lat);
+      const minLng = Math.min(validTarget.lng, validAmbulance.lng);
+      const maxLng = Math.max(validTarget.lng, validAmbulance.lng);
+      const latDelta = Math.max((maxLat - minLat) * 2.2, 0.015);
+      const lngDelta = Math.max((maxLng - minLng) * 2.2, 0.015);
+
       return {
         latitude: (minLat + maxLat) / 2,
         longitude: (minLng + maxLng) / 2,
-        latitudeDelta: Math.max((maxLat - minLat) * 2.2, 0.015),
-        longitudeDelta: Math.max((maxLng - minLng) * 2.2, 0.015),
+        latitudeDelta: isNaN(latDelta) ? 0.015 : latDelta,
+        longitudeDelta: isNaN(lngDelta) ? 0.015 : lngDelta,
       };
     }
 
@@ -82,13 +123,14 @@ export default function AmbulanceMap({
       latitudeDelta: 0.015,
       longitudeDelta: 0.015,
     };
-  }, [targetLocation, ambulanceLocation]);
+  }, [validTarget, validAmbulance]);
 
   // Tự động focus camera vào vị trí xe từ DB hoặc GPS khi dữ liệu được nạp
   useEffect(() => {
     if (!mapRef.current) return;
-    const focusTarget = (followAmbulance && ambulanceLocation) ? ambulanceLocation : targetLocation;
-    if (!focusTarget) return;
+    const focusTarget = (followAmbulance && validAmbulance) ? validAmbulance : validTarget;
+    if (!focusTarget || typeof focusTarget.lat !== 'number' || isNaN(focusTarget.lat)) return;
+
     try {
       mapRef.current.animateToRegion(
         {
@@ -100,23 +142,23 @@ export default function AmbulanceMap({
         800
       );
     } catch {}
-  }, [ambulanceLocation?.lat, ambulanceLocation?.lng, targetLocation?.lat, targetLocation?.lng, followAmbulance]);
+  }, [validAmbulance?.lat, validAmbulance?.lng, validTarget?.lat, validTarget?.lng, followAmbulance]);
 
   const polylineCoords = useMemo(() => {
     if (route && route.length > 0) {
-      return route.map(p => ({ latitude: p.lat, longitude: p.lng }));
+      const validRoute = route.filter(isValidCoord);
+      if (validRoute.length > 1) {
+        return validRoute.map(p => ({ latitude: p.lat, longitude: p.lng }));
+      }
     }
-    if (ambulanceLocation && targetLocation) {
+    if (validAmbulance && validTarget) {
       return [
-        { latitude: ambulanceLocation.lat, longitude: ambulanceLocation.lng },
-        { latitude: targetLocation.lat, longitude: targetLocation.lng },
+        { latitude: validAmbulance.lat, longitude: validAmbulance.lng },
+        { latitude: validTarget.lat, longitude: validTarget.lng },
       ];
     }
     return [];
-  }, [route, ambulanceLocation, targetLocation]);
-
-  // CartoDB Dark OpenStreetMap Tiles (corrected syntax with {z}/{x}/{y} directly)
-  const tileUrl = 'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png';
+  }, [route, validAmbulance, validTarget]);
 
   return (
     <View style={[styles.container, style]}>
@@ -126,6 +168,7 @@ export default function AmbulanceMap({
           provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
           style={styles.map}
           initialRegion={initialRegion}
+          customMapStyle={darkMapStyle}
           rotateEnabled={false}
           pitchEnabled={false}
           showsPointsOfInterest={false}
@@ -135,21 +178,11 @@ export default function AmbulanceMap({
           showsTraffic={false}
           showsIndoors={false}
         >
-          {/* OSM Custom Dark Tiles */}
-          <UrlTile
-            urlTemplate={tileUrl}
-            maximumZ={19}
-            minimumZ={3}
-            tileSize={256}
-            opacity={1}
-            zIndex={1}
-          />
-
-          {/* Destination: Incident Scene (Victim) or Hospital */}
-          {targetLocation && (
+          {/* Destination: Incident Scene (Victim) or Hospital - CHỈ render khi có tọa độ hợp lệ */}
+          {validTarget && (
             destinationType === 'HOSPITAL' ? (
               <Marker
-                coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                coordinate={{ latitude: validTarget.lat, longitude: validTarget.lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={10}
               >
@@ -160,7 +193,7 @@ export default function AmbulanceMap({
             ) : (
               <>
                 <Circle
-                  center={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                  center={{ latitude: validTarget.lat, longitude: validTarget.lng }}
                   radius={70}
                   strokeWidth={2}
                   strokeColor="rgba(240,68,56,0.6)"
@@ -168,7 +201,7 @@ export default function AmbulanceMap({
                   zIndex={5}
                 />
                 <Marker
-                  coordinate={{ latitude: targetLocation.lat, longitude: targetLocation.lng }}
+                  coordinate={{ latitude: validTarget.lat, longitude: validTarget.lng }}
                   anchor={{ x: 0.5, y: 0.5 }}
                   zIndex={10}
                 >
@@ -182,11 +215,11 @@ export default function AmbulanceMap({
             )
           )}
 
-          {/* Ambulance Marker & Dynamic Route */}
-          {ambulanceLocation && (
+          {/* Ambulance Marker & Dynamic Route - CHỈ render khi có tọa độ xe hợp lệ */}
+          {validAmbulance && (
             <>
               <Marker
-                coordinate={{ latitude: ambulanceLocation.lat, longitude: ambulanceLocation.lng }}
+                coordinate={{ latitude: validAmbulance.lat, longitude: validAmbulance.lng }}
                 anchor={{ x: 0.5, y: 0.5 }}
                 zIndex={20}
               >
@@ -194,7 +227,7 @@ export default function AmbulanceMap({
                   <FontAwesome5 name="ambulance" size={13} color="#FFF" />
                 </View>
               </Marker>
-              {polylineCoords.length > 0 && (
+              {polylineCoords.length > 1 && (
                 <Polyline
                   coordinates={polylineCoords}
                   strokeColor={destinationType === 'HOSPITAL' ? '#38BDF8' : '#F04438'}
