@@ -108,12 +108,17 @@ export default function AmbulanceMap({
     return [];
   }, [route, ambulanceLocation, victimLocation]);
 
-  // Dark / custom OSM tile (CartoDB Voyager dark-like) — falls back to standard OSM
-  const tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-  const tileAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+  // Standard OpenStreetMap tiles with dark CSS filter (no API key required, zero watermarks)
+  const tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const tileAttribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', background: '#0D1117', ...style }} className={className}>
+      <style>{`
+        .leaflet-tile-pane {
+          filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+        }
+      `}</style>
       <MapContainer
         center={center}
         zoom={15}

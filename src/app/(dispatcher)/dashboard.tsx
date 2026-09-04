@@ -14,22 +14,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-
-// Safely import MapView only on Native platforms
-let MapViewComponent: any = null;
-let MarkerComponent: any = null;
-let PROVIDER_GOOGLE_CONST: any = null;
-
-if (Platform.OS !== 'web') {
-  try {
-    const MapModule = require('react-native-maps');
-    MapViewComponent = MapModule.default;
-    MarkerComponent = MapModule.Marker;
-    PROVIDER_GOOGLE_CONST = MapModule.PROVIDER_GOOGLE;
-  } catch (e) {
-    console.warn('MapView failed to load', e);
-  }
-}
+import DispatcherMap from '@/components/DispatcherMap';
 
 const { width, height } = Dimensions.get('window');
 
@@ -124,34 +109,7 @@ export default function DispatcherDashboard() {
       <View style={styles.content}>
         {activeTab === 'map' ? (
           <View style={styles.mapContainer}>
-            {Platform.OS !== 'web' && MapViewComponent ? (
-              <MapViewComponent
-                provider={PROVIDER_GOOGLE_CONST}
-                style={styles.map}
-                initialRegion={{
-                  latitude: 21.015,
-                  longitude: 105.82,
-                  latitudeDelta: 0.05,
-                  longitudeDelta: 0.05,
-                }}
-                customMapStyle={darkMapStyle}
-              >
-                {cases.map(c => (
-                  <MarkerComponent key={c.id} coordinate={c.coordinates}>
-                    <View style={[styles.customMarker, { borderColor: c.priority === 'Khẩn cấp' ? '#F04438' : '#F79009' }]}>
-                      <View style={[styles.markerPulse, { backgroundColor: c.priority === 'Khẩn cấp' ? '#F04438' : '#F79009' }]} />
-                      <FontAwesome5 name={c.type === 'Tai nạn giao thông' ? 'car-crash' : 'heartbeat'} size={12} color="#FFF" />
-                    </View>
-                  </MarkerComponent>
-                ))}
-              </MapViewComponent>
-            ) : (
-              <View style={styles.webMapPlaceholder}>
-                <View style={styles.gridOverlayMap} />
-                <MaterialCommunityIcons name="map-marker-radius" size={48} color="#1F2A37" />
-                <Text style={styles.webMapText}>Bản đồ đang hoạt động (Mobile Only)</Text>
-              </View>
-            )}
+            <DispatcherMap cases={cases} style={styles.map} />
 
             {/* AI HUD Overlay */}
             <View style={styles.aiOverlay}>
