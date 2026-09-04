@@ -138,12 +138,19 @@ export default function TrackingScreen() {
         }
 
         // Status mapping chi tiết từng giai đoạn cứu thương
-        const currentSt = (res.missionStatus || res.dispatchRequestStatus || res.callStatus || '').toUpperCase();
-        if (currentSt === 'DISPATCHED' || currentSt === 'ASSIGNED') {
+        const currentSt = (
+          res.missionStatus ||
+          res.dispatchRequestStatus ||
+          (res as any).requestStatus ||
+          res.callStatus ||
+          (res as any).status ||
+          ''
+        ).toUpperCase();
+        if (currentSt === 'DISPATCHED' || currentSt === 'ASSIGNED' || currentSt === 'RECOMMENDING') {
           setStatus('DISPATCHED');
         } else if (currentSt === 'ACCEPTED' || currentSt === 'EN_ROUTE' || currentSt === 'RUNNING') {
           setStatus('EN_ROUTE');
-        } else if (currentSt === 'ARRIVED_SCENE' || currentSt === 'ARRIVED') {
+        } else if (currentSt === 'ARRIVED_SCENE' || currentSt === 'ARRIVED' || currentSt === 'AT_SCENE') {
           setStatus('ARRIVED_SCENE');
           setEta(0);
           setDistance(0);
@@ -155,7 +162,7 @@ export default function TrackingScreen() {
           setEta(0);
           setDistance(0);
           setProgress(100);
-        } else if (currentSt === 'COMPLETED') {
+        } else if (currentSt === 'COMPLETED' || currentSt === 'FINISHED' || currentSt === 'CLOSED') {
           setStatus('COMPLETED');
           setEta(0);
           setDistance(0);
@@ -409,15 +416,29 @@ export default function TrackingScreen() {
             styles.invoicePaymentBtn,
             status === 'COMPLETED' && styles.invoicePaymentBtnCompleted,
           ]}
-          onPress={() => {
-            if (status !== 'COMPLETED') {
-              Alert.alert(
-                'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
-                'Yêu cầu cấp cứu này đang chờ điều phối viên duyệt hoặc xe cấp cứu đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí chính thức sẽ xuất hiện ngay sau khi hoàn tất ca cấp cứu.'
-              );
+          onPress={async () => {
+            if (status === 'COMPLETED') {
+              setShowInvoiceModal(true);
               return;
             }
-            setShowInvoiceModal(true);
+
+            // Thử kiểm tra API thanh toán xem BE đã xuất hóa đơn cho ca này chưa
+            if (callId) {
+              try {
+                const payment = await api.getReporterPaymentByCallId(callId);
+                if (payment && payment.paymentId) {
+                  setShowInvoiceModal(true);
+                  return;
+                }
+              } catch {
+                // Silent
+              }
+            }
+
+            Alert.alert(
+              'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
+              'Yêu cầu cấp cứu này đang chờ điều phối viên duyệt hoặc xe cấp cứu đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí chính thức sẽ xuất hiện ngay sau khi hoàn tất ca cấp cứu.'
+            );
           }}
           activeOpacity={0.85}
         >

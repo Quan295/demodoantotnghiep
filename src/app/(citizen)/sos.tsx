@@ -687,17 +687,34 @@ export default function SOSScreen() {
 
                     <TouchableOpacity
                       style={styles.invoiceBtn}
-                      onPress={() => {
+                      onPress={async () => {
+                        const callId = item.id ?? (item as any).callId;
                         const callStatus = resolveCallListItemStatus(item);
-                        if (callStatus !== 'COMPLETED') {
-                          Alert.alert(
-                            'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
-                            `Yêu cầu cấp cứu #${item.id} hiện đang chờ điều phối viên duyệt hoặc xe đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí sẽ sẵn sàng ngay sau khi hoàn tất ca cấp cứu.`
-                          );
+
+                        // 1. Nếu ca cấp cứu đã ghi nhận COMPLETED -> mở ngay hóa đơn
+                        if (callStatus === 'COMPLETED') {
+                          setSelectedInvoiceCallId(callId);
+                          setShowInvoiceModal(true);
                           return;
                         }
-                        setSelectedInvoiceCallId(item.id);
-                        setShowInvoiceModal(true);
+
+                        // 2. Thử truy vấn API thanh toán xem BE đã tạo hóa đơn cho ca này chưa
+                        try {
+                          const payment = await api.getReporterPaymentByCallId(callId);
+                          if (payment && payment.paymentId) {
+                            setSelectedInvoiceCallId(callId);
+                            setShowInvoiceModal(true);
+                            return;
+                          }
+                        } catch {
+                          // Silent
+                        }
+
+                        // 3. Nếu thực sự ca chưa hoàn tất và BE chưa tạo hóa đơn -> Thông báo
+                        Alert.alert(
+                          'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
+                          `Yêu cầu cấp cứu #${callId} hiện đang chờ điều phối viên duyệt hoặc xe đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí sẽ sẵn sàng ngay sau khi hoàn tất ca cấp cứu.`
+                        );
                       }}
                     >
                       <MaterialCommunityIcons name="receipt-text" size={14} color="#34D399" />
@@ -917,12 +934,30 @@ function resolveCallStepIndex(callStatusObj?: CallStatusResponse | null, fallbac
   if (!callStatusObj && !fallbackStatus) return 0;
 
   const anyObj = (callStatusObj || {}) as any;
-  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || '')?.toUpperCase();
-  const requestStatus = (anyObj.requestStatus || anyObj.request_status || '')?.toUpperCase();
+  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || anyObj.mission?.status || '')?.toUpperCase();
+  const requestStatus = (
+    anyObj.dispatchRequestStatus ||
+    anyObj.dispatch_request_status ||
+    anyObj.requestStatus ||
+    anyObj.request_status ||
+    anyObj.dispatchStatus ||
+    anyObj.request?.status ||
+    ''
+  )?.toUpperCase();
   const callStatus = (anyObj.callStatus || anyObj.call_status || anyObj.status || fallbackStatus || '')?.toUpperCase();
 
   // 1. Hoàn tất ca cứu hộ
-  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+  if (
+    missionStatus === 'COMPLETED' ||
+    missionStatus === 'FINISHED' ||
+    requestStatus === 'COMPLETED' ||
+    requestStatus === 'FINISHED' ||
+    requestStatus === 'CLOSED' ||
+    callStatus === 'COMPLETED' ||
+    callStatus === 'FINISHED' ||
+    callStatus === 'RESOLVED' ||
+    callStatus === 'CLOSED'
+  ) {
     return 4; // Step 5 (0-indexed 4)
   }
 
@@ -944,7 +979,7 @@ function resolveCallStepIndex(callStatusObj?: CallStatusResponse | null, fallbac
   if (['EN_ROUTE', 'IN_PROGRESS'].includes(requestStatus)) {
     return 2;
   }
-  if (['DISPATCHED', 'ASSIGNED', 'ACCEPTED'].includes(requestStatus)) {
+  if (['DISPATCHED', 'ASSIGNED', 'ACCEPTED', 'RECOMMENDING'].includes(requestStatus)) {
     return 1;
   }
   if (['PENDING', 'RECEIVED', 'CREATED'].includes(requestStatus)) {
@@ -961,27 +996,51 @@ function resolveCallStepIndex(callStatusObj?: CallStatusResponse | null, fallbac
 
 function resolveCallStatusDescription(callStatusObj?: CallStatusResponse | null): string {
   const anyObj = (callStatusObj || {}) as any;
-  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || '')?.toUpperCase();
-  const requestStatus = (anyObj.requestStatus || anyObj.request_status || '')?.toUpperCase();
+  const missionStatus = (anyObj.missionStatus || anyObj.mission_status || anyObj.mission?.status || '')?.toUpperCase();
+  const requestStatus = (
+    anyObj.dispatchRequestStatus ||
+    anyObj.dispatch_request_status ||
+    anyObj.requestStatus ||
+    anyObj.request_status ||
+    anyObj.dispatchStatus ||
+    anyObj.request?.status ||
+    ''
+  )?.toUpperCase();
   const callStatus = (anyObj.callStatus || anyObj.call_status || anyObj.status || '')?.toUpperCase();
 
-  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+  if (
+    missionStatus === 'COMPLETED' ||
+    missionStatus === 'FINISHED' ||
+    requestStatus === 'COMPLETED' ||
+    requestStatus === 'FINISHED' ||
+    callStatus === 'COMPLETED'
+  ) {
     return 'Ca cứu hộ đã hoàn thành thành công. Bệnh nhân đã được tiếp nhận và xử lý.';
   }
-  if (missionStatus === 'ARRIVED_HOSPITAL') {
+  if (missionStatus === 'ARRIVED_HOSPITAL' || requestStatus === 'ARRIVED_HOSPITAL') {
     return 'Xe cấp cứu đã đưa bệnh nhân đến bệnh viện an toàn.';
   }
-  if (missionStatus === 'TRANSPORTING') {
+  if (missionStatus === 'TRANSPORTING' || requestStatus === 'TRANSPORTING') {
     return 'Đội ngũ y tế đang thực hiện chuyển bệnh nhân đến bệnh viện điều trị.';
   }
-  if (missionStatus === 'ARRIVED_SCENE' || missionStatus === 'AT_SCENE' || missionStatus === 'ARRIVED') {
+  if (
+    missionStatus === 'ARRIVED_SCENE' ||
+    missionStatus === 'AT_SCENE' ||
+    missionStatus === 'ARRIVED' ||
+    requestStatus === 'ARRIVED_SCENE'
+  ) {
     return 'Đội cứu hộ và y bác sĩ đã có mặt tại hiện trường để sơ cấp cứu.';
   }
-  if (missionStatus === 'EN_ROUTE' || missionStatus === 'START') {
+  if (missionStatus === 'EN_ROUTE' || missionStatus === 'START' || requestStatus === 'EN_ROUTE') {
     return 'Xe cấp cứu đang bật còi ưu tiên di chuyển khẩn cấp đến vị trí của bạn.';
   }
-  if (missionStatus === 'ACCEPTED' || requestStatus === 'ASSIGNED' || requestStatus === 'DISPATCHED') {
-    return 'Tổng đài 115 đã điều phối xe cấp cứu và kíp y tế tiếp nhận ca cứu nạn.';
+  if (
+    missionStatus === 'ACCEPTED' ||
+    requestStatus === 'ASSIGNED' ||
+    requestStatus === 'DISPATCHED' ||
+    requestStatus === 'RECOMMENDING'
+  ) {
+    return 'Tổng đài 115 đã tiếp nhận và điều phối xe cấp cứu phục vụ ca cứu nạn.';
   }
   return anyObj.statusDescription || 'Hệ thống 115 đã tiếp nhận và đang tích cực xử lý ca cấp cứu.';
 }
@@ -1013,27 +1072,100 @@ const TipCard = ({ icon, title, desc, color }: { icon: any; title: string; desc:
 
 const resolveCallListItemStatus = (item: any): string => {
   if (!item) return 'RECEIVED';
-  const missionStatus = (item.missionStatus || item.mission_status || '')?.toUpperCase();
-  const requestStatus = (item.requestStatus || item.request_status || item.dispatchStatus || '')?.toUpperCase();
-  const callStatus = (item.status || item.callStatus || item.call_status || '')?.toUpperCase();
 
-  if (missionStatus === 'COMPLETED' || requestStatus === 'COMPLETED' || callStatus === 'COMPLETED') {
+  // Trích xuất extended_attributes nếu có
+  let ext: any = {};
+  if (typeof item.extended_attributes === 'string') {
+    try { ext = JSON.parse(item.extended_attributes); } catch {}
+  } else if (item.extended_attributes) {
+    ext = item.extended_attributes;
+  } else if (item.extendedAttributes) {
+    ext = item.extendedAttributes;
+  }
+
+  const missionStatus = (
+    item.missionStatus ||
+    item.mission_status ||
+    item.mission?.status ||
+    ext.missionStatus ||
+    ext.mission_status ||
+    ''
+  )?.toUpperCase();
+
+  const requestStatus = (
+    item.dispatchRequestStatus ||
+    item.dispatch_request_status ||
+    item.requestStatus ||
+    item.request_status ||
+    item.dispatchStatus ||
+    item.dispatch_status ||
+    item.request?.status ||
+    ext.dispatchRequestStatus ||
+    ext.requestStatus ||
+    ext.request_status ||
+    ''
+  )?.toUpperCase();
+
+  const callStatus = (
+    item.callStatus ||
+    item.call_status ||
+    item.status ||
+    ext.callStatus ||
+    ext.call_status ||
+    ext.status ||
+    ''
+  )?.toUpperCase();
+
+  // 1. COMPLETED: Ca cứu hộ đã kết thúc
+  if (
+    missionStatus === 'COMPLETED' ||
+    missionStatus === 'FINISHED' ||
+    requestStatus === 'COMPLETED' ||
+    requestStatus === 'FINISHED' ||
+    requestStatus === 'CLOSED' ||
+    callStatus === 'COMPLETED' ||
+    callStatus === 'FINISHED' ||
+    callStatus === 'RESOLVED' ||
+    callStatus === 'CLOSED' ||
+    item.paymentStatus === 'PAID'
+  ) {
     return 'COMPLETED';
   }
-  if (['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE', 'AT_SCENE', 'ARRIVED'].includes(missionStatus) ||
-      ['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE'].includes(requestStatus)) {
+
+  // 2. Đã tới hiện trường / Đang chuyển viện
+  if (
+    ['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE', 'AT_SCENE', 'ARRIVED'].includes(missionStatus) ||
+    ['ARRIVED_HOSPITAL', 'TRANSPORTING', 'ARRIVED_SCENE'].includes(requestStatus)
+  ) {
     return 'ARRIVED_SCENE';
   }
-  if (['EN_ROUTE', 'START', 'RUNNING'].includes(missionStatus) || ['EN_ROUTE', 'IN_PROGRESS'].includes(requestStatus)) {
+
+  // 3. Đang di chuyển
+  if (
+    ['EN_ROUTE', 'START', 'RUNNING'].includes(missionStatus) ||
+    ['EN_ROUTE', 'IN_PROGRESS'].includes(requestStatus)
+  ) {
     return 'EN_ROUTE';
   }
-  if (['ACCEPTED', 'ASSIGNED', 'DISPATCHED'].includes(missionStatus) || ['ASSIGNED', 'DISPATCHED'].includes(requestStatus) || ['ASSIGNED', 'DISPATCHED'].includes(callStatus)) {
+
+  // 4. Đã điều phối
+  if (
+    ['ACCEPTED', 'ASSIGNED', 'DISPATCHED'].includes(missionStatus) ||
+    ['ASSIGNED', 'DISPATCHED', 'RECOMMENDING'].includes(requestStatus) ||
+    ['ASSIGNED', 'DISPATCHED'].includes(callStatus)
+  ) {
     return 'DISPATCHED';
   }
-  if (['PENDING', 'RECEIVED', 'CREATED', 'NEW'].includes(callStatus) || ['PENDING', 'RECEIVED', 'CREATED'].includes(requestStatus)) {
+
+  // 5. Đã tiếp nhận
+  if (
+    ['PENDING', 'RECEIVED', 'CREATED', 'NEW', 'CONFIRMED'].includes(callStatus) ||
+    ['PENDING', 'RECEIVED', 'CREATED', 'NEW'].includes(requestStatus)
+  ) {
     return 'RECEIVED';
   }
-  return callStatus || 'RECEIVED';
+
+  return requestStatus || missionStatus || callStatus || 'RECEIVED';
 };
 
 const getStatusBadgeStyle = (status: string) => {
