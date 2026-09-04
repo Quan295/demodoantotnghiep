@@ -409,7 +409,16 @@ export default function TrackingScreen() {
             styles.invoicePaymentBtn,
             status === 'COMPLETED' && styles.invoicePaymentBtnCompleted,
           ]}
-          onPress={() => setShowInvoiceModal(true)}
+          onPress={() => {
+            if (status !== 'COMPLETED') {
+              Alert.alert(
+                'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
+                'Yêu cầu cấp cứu này đang chờ điều phối viên duyệt hoặc xe cấp cứu đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí chính thức sẽ xuất hiện ngay sau khi hoàn tất ca cấp cứu.'
+              );
+              return;
+            }
+            setShowInvoiceModal(true);
+          }}
           activeOpacity={0.85}
         >
           <MaterialCommunityIcons

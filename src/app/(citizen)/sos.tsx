@@ -688,6 +688,14 @@ export default function SOSScreen() {
                     <TouchableOpacity
                       style={styles.invoiceBtn}
                       onPress={() => {
+                        const callStatus = resolveCallListItemStatus(item);
+                        if (callStatus !== 'COMPLETED') {
+                          Alert.alert(
+                            'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
+                            `Yêu cầu cấp cứu #${item.id} hiện đang chờ điều phối viên duyệt hoặc xe đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí sẽ sẵn sàng ngay sau khi hoàn tất ca cấp cứu.`
+                          );
+                          return;
+                        }
                         setSelectedInvoiceCallId(item.id);
                         setShowInvoiceModal(true);
                       }}

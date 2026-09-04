@@ -83,9 +83,17 @@ export default function PaymentInvoiceModal({
 
   const handlePayNow = async () => {
     try {
+      if (!realPayment) {
+        Alert.alert(
+          'Dự Tính Chi Phí Cấp Cứu',
+          `Ca cấp cứu #${callId} đang được thực hiện. Sau khi xe cứu thương đưa bệnh nhân đến bệnh viện an toàn và hoàn thành nhiệm vụ, hệ thống sẽ chốt cự ly thực tế và xuất hóa đơn điện tử chính thức để bạn thanh toán.`
+        );
+        return;
+      }
+
       setIsProcessing(true);
 
-      if (realPayment && realPayment.paymentId && selectedMethod !== 'CASH') {
+      if (realPayment.paymentId && selectedMethod !== 'CASH') {
         const updated = await api.payReporterPayment(realPayment.paymentId, {
           paymentMethod: selectedMethod as 'VIETQR' | 'VNPAY' | 'MOMO',
         });
@@ -136,14 +144,18 @@ export default function PaymentInvoiceModal({
 
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
             {/* Status Banner */}
-            <View style={[styles.statusBanner, isPaid ? styles.statusPaid : styles.statusUnpaid]}>
+            <View style={[styles.statusBanner, isPaid ? styles.statusPaid : !realPayment ? styles.statusEstimate : styles.statusUnpaid]}>
               <Ionicons
-                name={isPaid ? 'checkmark-circle' : 'time-outline'}
+                name={isPaid ? 'checkmark-circle' : !realPayment ? 'information-circle' : 'time-outline'}
                 size={18}
-                color={isPaid ? '#10B981' : '#F59E0B'}
+                color={isPaid ? '#10B981' : !realPayment ? '#38BDF8' : '#F59E0B'}
               />
-              <Text style={[styles.statusBannerText, { color: isPaid ? '#34D399' : '#FBBF24' }]}>
-                {isPaid ? 'ĐÃ THANH TOÁN HOÀN TẤT' : 'CHỜ THANH TOÁN (HÓA ĐƠN ĐIỆN TỬ)'}
+              <Text style={[styles.statusBannerText, { color: isPaid ? '#34D399' : !realPayment ? '#38BDF8' : '#FBBF24' }]}>
+                {isPaid
+                  ? 'ĐÃ THANH TOÁN HOÀN TẤT'
+                  : !realPayment
+                  ? 'BẢNG DỰ TÍNH CHI PHÍ (TẠM TÍNH)'
+                  : 'CHỜ THANH TOÁN (HÓA ĐƠN ĐIỆN TỬ)'}
               </Text>
             </View>
 
@@ -408,6 +420,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  statusEstimate: {
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
   },
   statusBannerText: {
     fontSize: 13,

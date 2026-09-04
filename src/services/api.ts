@@ -35,7 +35,11 @@ class ApiService {
   private refreshPromise: Promise<any> | null = null;
 
   // Generic fetch helper that handles the API response format
-  private async request<T = any>(path: string, options: RequestInit = {}, isRetry = false): Promise<T> {
+  private async request<T = any>(
+    path: string,
+    options: RequestInit & { silent?: boolean } = {},
+    isRetry = false
+  ): Promise<T> {
     console.log('[API] Request called:', { path, options, isRetry });
     
     if (globalConfig.getUseMockData()) {
@@ -89,14 +93,18 @@ class ApiService {
       try {
         result = JSON.parse(resultText);
       } catch (e) {
-        console.error('[API] Failed to parse JSON response:', e);
+        if (!options.silent) {
+          console.warn('[API] Failed to parse JSON response:', e);
+        }
         throw new Error(`Phản hồi từ server không hợp lệ: ${resultText.substring(0, 200)}`);
       }
 
       console.log('[API] Response parsed success, code:', result.code);
 
       if (!result.success) {
-        console.error('[API] Request failed (success=false):', result.message);
+        if (!options.silent) {
+          console.warn('[API] Request failed (success=false):', result.message);
+        }
         // Cũng thử refresh nếu API báo lỗi về token/mã hóa
         if ((result.code === 401 || result.code === 403) && !isRetry && !path.includes('/auth/login') && !path.includes('/auth/refresh')) {
           console.log('[API] Success=false with auth error code, attempting token refresh...');
@@ -108,7 +116,9 @@ class ApiService {
 
       return result.data;
     } catch (error: any) {
-      console.error('[API] Request error:', error?.name, error?.message);
+      if (!options.silent) {
+        console.warn('[API] Request error:', error?.name, error?.message);
+      }
 
       // Xử lý lỗi cụ thể để báo người dùng rõ ràng
       if (error?.name === 'AbortError') {
@@ -853,9 +863,18 @@ class ApiService {
 
   /**
    * GET /reporter/payments/by-call/{callId}: Chi tiết chi phí theo callId (Dùng cho Mobile Reporter)
+   * Trả về null an toàn nếu ca cấp cứu chưa kết thúc hoặc chưa có hóa đơn thanh toán
    */
-  async getReporterPaymentByCallId(callId: number | string): Promise<PaymentDetailResponse> {
-    return await this.request<PaymentDetailResponse>(`/reporter/payments/by-call/${callId}`);
+  async getReporterPaymentByCallId(callId: number | string): Promise<PaymentDetailResponse | null> {
+    try {
+      return await this.request<PaymentDetailResponse>(`/reporter/payments/by-call/${callId}`, {
+        silent: true,
+      });
+    } catch (err: any) {
+      // Khi ca cấp cứu chưa hoàn thành, backend báo: "Chưa có giao dịch thanh toán cho cuộc gọi id: X"
+      // Trả về null an toàn mà không làm đỏ màn hình app
+      return null;
+    }
   }
 
   /**
