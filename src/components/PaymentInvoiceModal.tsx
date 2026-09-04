@@ -30,21 +30,31 @@ export default function PaymentInvoiceModal({
 }: PaymentInvoiceModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('VIETQR');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isLoadingPayment, setIsLoadingPayment] = useState<boolean>(false);
   const [realPayment, setRealPayment] = useState<PaymentDetailResponse | null>(null);
 
-  // Fetch real payment from backend when opened
+  // Fetch real payment from backend when opened (No silent mock fallback)
   useEffect(() => {
-    if (!visible || !callId) return;
+    if (!visible || !callId) {
+      setRealPayment(null);
+      return;
+    }
 
     let isMounted = true;
     (async () => {
       try {
+        setIsLoadingPayment(true);
         const res = await api.getReporterPaymentByCallId(callId);
-        if (isMounted && res && res.paymentId) {
-          setRealPayment(res);
+        if (isMounted) {
+          setRealPayment(res && res.paymentId ? res : null);
+          setIsLoadingPayment(false);
         }
       } catch (err) {
-        // Im silent fallback to mock
+        console.warn('[PaymentModal] Load payment error:', err);
+        if (isMounted) {
+          setRealPayment(null);
+          setIsLoadingPayment(false);
+        }
       }
     })();
 
@@ -55,79 +65,91 @@ export default function PaymentInvoiceModal({
 
   if (!callId) return null;
 
-  const mockInvoice = paymentMockService.getInvoiceByCallId(callId);
-  
-  // Xác định gói dịch vụ: ALS (300k base, 45k/km) vs BLS (200k base, 40k/km)
-  const isBLS = (realPayment?.serviceTypeCode === 'BLS') || 
-                (mockInvoice.vehicleType?.toUpperCase().includes('BLS')) || 
-                (!realPayment && Number(callId) % 2 === 1);
+  // BE Payment contract: SUCCESS (hoặc PAID cho tương thích ngược)
+  const isPaid = realPayment?.status === 'SUCCESS' || realPayment?.status === 'PAID';
+  const isBLS = realPayment?.serviceTypeCode === 'BLS';
   const serviceTypeCode = isBLS ? 'BLS' : 'ALS';
   const serviceTypeName = isBLS ? 'Xe Cấp Cứu Tiêu Chuẩn (BLS)' : 'Xe Cấp Cứu Hồi Sức Nâng Cao (ALS)';
 
-  const defaultBaseFare = isBLS ? 200000 : 300000;
-  const defaultPricePerKm = isBLS ? 40000 : 45000;
-
-  const baseFare = realPayment?.baseFare ?? defaultBaseFare;
-  const pricePerKm = realPayment?.pricePerKm ?? defaultPricePerKm;
-  const distanceKm = realPayment?.billableDistanceKm ?? mockInvoice.distanceKm;
+  const baseFare = realPayment?.baseFare ?? (isBLS ? 200000 : 300000);
+  const pricePerKm = realPayment?.pricePerKm ?? (isBLS ? 40000 : 45000);
+  const distanceKm = realPayment?.billableDistanceKm ?? 0;
   const distanceFare = realPayment?.distanceFare ?? Math.round(distanceKm * pricePerKm);
   const totalAmount = realPayment?.totalAmount ?? (baseFare + distanceFare);
+  const invoiceCode = realPayment ? `HĐ-${realPayment.paymentId}` : `HĐ-CALL-${callId}`;
 
-  // Use real backend payment if available, else mock
-  const isPaid = realPayment ? (realPayment.status === 'PAID' || !!realPayment.paidAt) : mockInvoice.paymentStatus === 'PAID';
-  const invoiceCode = realPayment ? `HĐ-${realPayment.paymentId}` : mockInvoice.invoiceCode;
-  const pickupAddress = realPayment?.pickupAddress || mockInvoice.pickupAddress;
-  const hospitalAddress = realPayment?.hospitalAddress || mockInvoice.hospitalAddress;
-  const licensePlate = realPayment?.licensePlate || mockInvoice.licensePlate;
-
-  const invoice = {
-    ...mockInvoice,
-    invoiceCode,
-    totalAmount,
-    paymentStatus: (isPaid ? 'PAID' : 'UNPAID') as any,
-    distanceKm,
-    pickupAddress,
-    hospitalAddress,
-    licensePlate,
-    vehicleType: realPayment?.serviceTypeCode ? serviceTypeName : mockInvoice.vehicleType,
-    patientName: realPayment?.patientName || mockInvoice.patientName,
-    patientPhone: realPayment?.patientPhone || mockInvoice.patientPhone,
-    paymentMethod: (realPayment?.paymentMethod as any) || mockInvoice.paymentMethod,
-    paidAt: realPayment?.paidAt || mockInvoice.paidAt,
+  const formatVND = (num?: number | null) => {
+    if (num == null || isNaN(num)) return '0 đ';
+    return new Intl.NumberFormat('vi-VN').format(Math.round(num)) + ' đ';
   };
 
   const handlePayNow = async () => {
-    try {
-      if (!realPayment) {
-        Alert.alert(
-          'Dự Tính Chi Phí Cấp Cứu',
-          `Ca cấp cứu #${callId} đang được thực hiện. Sau khi xe cứu thương đưa bệnh nhân đến bệnh viện an toàn và hoàn thành nhiệm vụ, hệ thống sẽ chốt cự ly thực tế và xuất hóa đơn điện tử chính thức để bạn thanh toán.`
-        );
-        return;
-      }
+    if (!realPayment || !realPayment.paymentId) {
+      Alert.alert(
+        'Ca Chưa Quyết Toán',
+        `Ca cấp cứu #${callId} chưa chốt dữ liệu cước từ điều phối viên. Vui lòng thử lại sau khi hoàn tất ca cấp cứu.`
+      );
+      return;
+    }
 
+    try {
       setIsProcessing(true);
 
-      if (realPayment.paymentId && selectedMethod !== 'CASH') {
-        const updated = await api.payReporterPayment(realPayment.paymentId, {
-          paymentMethod: selectedMethod as 'VIETQR' | 'VNPAY' | 'MOMO',
-        });
-        setRealPayment(updated);
-      }
+      // Gọi API thật lên Backend
+      const updated = await api.payReporterPayment(realPayment.paymentId, {
+        paymentMethod: selectedMethod as 'VIETQR' | 'VNPAY' | 'MOMO',
+      });
 
-      const updatedMock = await paymentMockService.processPayment(callId, selectedMethod);
+      setRealPayment(updated);
       setIsProcessing(false);
 
       Alert.alert(
         'Thanh Toán Thành Công! 🎉',
-        `Hóa đơn ${invoiceCode} trị giá ${paymentMockService.formatCurrency(totalAmount)} đã được thanh toán thành công qua ${selectedMethod}.`
+        `Hóa đơn ${invoiceCode} trị giá ${formatVND(totalAmount)} đã được ghi nhận thanh toán thành công qua ${selectedMethod}.`
       );
+
       if (onPaymentSuccess) {
-        onPaymentSuccess(updatedMock);
+        onPaymentSuccess({
+          id: `inv-${updated.paymentId}`,
+          invoiceCode: `HĐ-${updated.paymentId}`,
+          callId: updated.callId,
+          requestId: updated.requestId || updated.callId,
+          missionId: updated.missionId || 0,
+          patientName: updated.patientName || 'Bệnh nhân',
+          patientPhone: updated.patientPhone || '',
+          pickupAddress: updated.pickupAddress || '',
+          hospitalAddress: updated.hospitalAddress || '',
+          distanceKm: updated.billableDistanceKm || distanceKm,
+          vehicleType: serviceTypeName,
+          licensePlate: updated.licensePlate || '',
+          items: [
+            {
+              name: `Phí khởi động xe cấp cứu ${serviceTypeCode}`,
+              quantity: 1,
+              unitPrice: updated.baseFare || baseFare,
+              totalPrice: updated.baseFare || baseFare,
+            },
+            {
+              name: `Cước di chuyển (${(updated.billableDistanceKm || distanceKm).toFixed(1)} km × ${formatVND(updated.pricePerKm || pricePerKm)}/km)`,
+              quantity: updated.billableDistanceKm || distanceKm,
+              unitPrice: updated.pricePerKm || pricePerKm,
+              totalPrice: updated.distanceFare || distanceFare,
+            },
+          ],
+          subtotal: updated.totalAmount,
+          discountAmount: 0,
+          totalAmount: updated.totalAmount,
+          paymentStatus: (updated.status === 'SUCCESS' || updated.status === 'PAID') ? 'PAID' : 'UNPAID',
+          paymentMethod: selectedMethod,
+          transactionRef: updated.externalTransactionId || null,
+          createdAt: updated.createdAt || new Date().toISOString(),
+          paidAt: updated.paidAt || new Date().toISOString(),
+          notes: 'Thanh toán trực tuyến thành công',
+        });
       }
     } catch (e: any) {
       setIsProcessing(false);
-      Alert.alert('Lỗi', e?.message || 'Thanh toán không thành công, vui lòng thử lại');
+      Alert.alert('Lỗi Thanh Toán', e?.message || 'Không thể thực hiện thanh toán. Vui lòng thử lại sau.');
     }
   };
 
@@ -148,7 +170,7 @@ export default function PaymentInvoiceModal({
               </View>
               <View>
                 <Text style={styles.modalTitle}>HÓA ĐƠN & CHI PHÍ CẤP CỨU</Text>
-                <Text style={styles.invoiceCodeText}>{invoice.invoiceCode}</Text>
+                <Text style={styles.invoiceCodeText}>{invoiceCode}</Text>
               </View>
             </View>
 
@@ -158,200 +180,240 @@ export default function PaymentInvoiceModal({
           </View>
 
           <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-            {/* Status Banner */}
-            <View style={[styles.statusBanner, isPaid ? styles.statusPaid : !realPayment ? styles.statusEstimate : styles.statusUnpaid]}>
-              <Ionicons
-                name={isPaid ? 'checkmark-circle' : !realPayment ? 'information-circle' : 'time-outline'}
-                size={18}
-                color={isPaid ? '#10B981' : !realPayment ? '#38BDF8' : '#F59E0B'}
-              />
-              <Text style={[styles.statusBannerText, { color: isPaid ? '#34D399' : !realPayment ? '#38BDF8' : '#FBBF24' }]}>
-                {isPaid
-                  ? 'ĐÃ THANH TOÁN HOÀN TẤT'
-                  : !realPayment
-                  ? 'BẢNG DỰ TÍNH CHI PHÍ (TẠM TÍNH)'
-                  : 'CHỜ THANH TOÁN (HÓA ĐƠN ĐIỆN TỬ)'}
-              </Text>
-            </View>
-
-            {/* General Trip Info */}
-            <View style={styles.infoSection}>
-              <Text style={styles.sectionHeader}>THÔNG TIN CHUYẾN CẤP CỨU</Text>
-              
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Bệnh nhân / Người gọi:</Text>
-                <Text style={styles.infoValue}>{invoice.patientName} ({invoice.patientPhone})</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Mã cuộc gọi / Yêu cầu:</Text>
-                <Text style={styles.infoValue}>#{invoice.callId} • Yêu cầu #{invoice.requestId}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Xe cấp cứu tiếp nhận:</Text>
-                <Text style={[styles.infoValue, { color: '#34D399', fontWeight: '700' }]}>
-                  {invoice.licensePlate} • {invoice.vehicleType}
+            {isLoadingPayment ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color="#EF4444" />
+                <Text style={{ color: '#94A3B8', marginTop: 12, fontSize: 13, fontWeight: '600' }}>
+                  Đang tải thông tin cước viện phí từ hệ thống...
                 </Text>
               </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Điểm đón (Hiện trường):</Text>
-                <Text style={styles.infoValue} numberOfLines={2}>{invoice.pickupAddress}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Bệnh viện tiếp nhận:</Text>
-                <Text style={styles.infoValue} numberOfLines={2}>{invoice.hospitalAddress}</Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Quãng đường vận chuyển:</Text>
-                <Text style={styles.infoValue}>{invoice.distanceKm} km</Text>
-              </View>
-            </View>
-
-            {/* Itemized Billing Breakdown */}
-            <View style={styles.itemsSection}>
-              <Text style={styles.sectionHeader}>CHI TIẾT DỊCH VỤ & VIỆN PHÍ</Text>
-
-              <View style={styles.billItemRow}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={styles.billItemName}>
-                    Phí khởi động xe cấp cứu {serviceTypeCode}
-                  </Text>
-                  <Text style={styles.billItemSub}>
-                    {isBLS ? 'Cấp cứu tiêu chuẩn (BLS)' : 'Hồi sức cấp cứu nâng cao (ALS)'}
+            ) : !realPayment ? (
+              /* Chưa có Payment: Ca chưa được quyết toán */
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <View style={[styles.statusBanner, styles.statusEstimate, { width: '100%', marginBottom: 20 }]}>
+                  <Ionicons name="time-outline" size={18} color="#38BDF8" />
+                  <Text style={[styles.statusBannerText, { color: '#38BDF8' }]}>
+                    CA CẤP CỨU CHƯA ĐƯỢC QUYẾT TOÁN
                   </Text>
                 </View>
-                <Text style={styles.billItemPrice}>
-                  {paymentMockService.formatCurrency(baseFare)}
+
+                <MaterialCommunityIcons name="receipt-text-clock" size={48} color="#64748B" style={{ marginBottom: 16 }} />
+                <Text style={{ color: '#F1F5F9', fontSize: 15, fontWeight: '700', textAlign: 'center', marginBottom: 8 }}>
+                  Chưa phát sinh hóa đơn cước phí
                 </Text>
-              </View>
-
-              <View style={styles.billItemRow}>
-                <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={styles.billItemName}>
-                    Cước di chuyển theo quãng đường
-                  </Text>
-                  <Text style={styles.billItemSub}>
-                    {distanceKm.toFixed(1)} km × {paymentMockService.formatCurrency(pricePerKm)}/km
-                  </Text>
-                </View>
-                <Text style={styles.billItemPrice}>
-                  {paymentMockService.formatCurrency(distanceFare)}
+                <Text style={{ color: '#94A3B8', fontSize: 13, textAlign: 'center', lineHeight: 20, paddingHorizontal: 16, marginBottom: 24 }}>
+                  Yêu cầu cấp cứu #{callId} đang trong quá trình xử lý hoặc chưa được điều phối viên chốt quyết toán chuyến đi.{'\n\n'}
+                  Hóa đơn cước phí chính thức sẽ tự động xuất hiện sau khi xe cứu thương đưa bệnh nhân đến bệnh viện an toàn và hoàn tất nhiệm vụ.
                 </Text>
-              </View>
 
-              <View style={styles.divider} />
-
-              <View style={[styles.summaryRow, styles.totalRow]}>
-                <Text style={styles.totalLabel}>TỔNG CẦN THANH TOÁN:</Text>
-                <Text style={styles.totalValue}>{paymentMockService.formatCurrency(totalAmount)}</Text>
-              </View>
-            </View>
-
-            {/* Payment Details if Paid */}
-            {isPaid ? (
-              <View style={styles.paidDetailCard}>
-                <View style={styles.paidHeaderRow}>
-                  <MaterialCommunityIcons name="shield-check" size={20} color="#10B981" />
-                  <Text style={styles.paidHeaderText}>HÓA ĐƠN ĐÃ ĐƯỢC XÁC THỰC</Text>
-                </View>
-                <Text style={styles.paidSubText}>Phương thức: {invoice.paymentMethod || 'VIETQR'}</Text>
-                <Text style={styles.paidSubText}>Mã giao dịch: {invoice.transactionRef || 'VQR987216'}</Text>
-                {invoice.paidAt && (
-                  <Text style={styles.paidSubText}>
-                    Thời gian: {new Date(invoice.paidAt).toLocaleString('vi-VN')}
-                  </Text>
-                )}
-              </View>
-            ) : (
-              /* Payment Methods Selection & VietQR if Unpaid */
-              <View style={styles.paymentMethodSection}>
-                <Text style={styles.sectionHeader}>PHƯƠNG THỨC THANH TOÁN</Text>
-
-                <View style={styles.methodList}>
-                  <TouchableOpacity
-                    style={[styles.methodBtn, selectedMethod === 'VIETQR' && styles.methodBtnActive]}
-                    onPress={() => setSelectedMethod('VIETQR')}
-                  >
-                    <MaterialCommunityIcons name="qrcode-scan" size={18} color={selectedMethod === 'VIETQR' ? '#10B981' : '#94A3B8'} />
-                    <Text style={[styles.methodBtnText, selectedMethod === 'VIETQR' && styles.methodBtnTextActive]}>
-                      VietQR Ngân hàng
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.methodBtn, selectedMethod === 'VNPAY' && styles.methodBtnActive]}
-                    onPress={() => setSelectedMethod('VNPAY')}
-                  >
-                    <Ionicons name="card-outline" size={18} color={selectedMethod === 'VNPAY' ? '#10B981' : '#94A3B8'} />
-                    <Text style={[styles.methodBtnText, selectedMethod === 'VNPAY' && styles.methodBtnTextActive]}>
-                      VNPAY-QR
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.methodBtn, selectedMethod === 'MOMO' && styles.methodBtnActive]}
-                    onPress={() => setSelectedMethod('MOMO')}
-                  >
-                    <Ionicons name="wallet-outline" size={18} color={selectedMethod === 'MOMO' ? '#10B981' : '#94A3B8'} />
-                    <Text style={[styles.methodBtnText, selectedMethod === 'MOMO' && styles.methodBtnTextActive]}>
-                      Ví MoMo
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.methodBtn, selectedMethod === 'CASH' && styles.methodBtnActive]}
-                    onPress={() => setSelectedMethod('CASH')}
-                  >
-                    <Ionicons name="cash-outline" size={18} color={selectedMethod === 'CASH' ? '#10B981' : '#94A3B8'} />
-                    <Text style={[styles.methodBtnText, selectedMethod === 'CASH' && styles.methodBtnTextActive]}>
-                      Tiền mặt trực tiếp
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* QR Code display for VietQR */}
-                {selectedMethod === 'VIETQR' && (
-                  <View style={styles.qrCard}>
-                    <Text style={styles.qrTitle}>QUÉT MÃ VIETQR ĐỂ THANH TOÁN</Text>
-                    <Image
-                      source={{
-                        uri: paymentMockService.getVietQRUrl(
-                          invoice.totalAmount,
-                          `Thanh toan cuoc cap cuu ${invoice.invoiceCode}`
-                        ),
-                      }}
-                      style={styles.qrImage}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.qrNote}>
-                      Sử dụng ứng dụng ngân hàng bất kỳ để quét mã chuyển khoản tự động.
-                    </Text>
-                  </View>
-                )}
-
-                {/* Pay Button */}
                 <TouchableOpacity
-                  style={styles.payNowBtn}
-                  onPress={handlePayNow}
-                  disabled={isProcessing}
-                  activeOpacity={0.85}
+                  style={[styles.payNowBtn, { backgroundColor: '#334155', width: '100%' }]}
+                  onPress={onClose}
                 >
-                  {isProcessing ? (
-                    <ActivityIndicator size="small" color="#022C22" />
-                  ) : (
-                    <>
-                      <FontAwesome5 name="check-circle" size={16} color="#022C22" style={{ marginRight: 8 }} />
-                      <Text style={styles.payNowBtnText}>
-                        XÁC NHẬN THANH TOÁN ({paymentMockService.formatCurrency(invoice.totalAmount)})
-                      </Text>
-                    </>
-                  )}
+                  <Text style={[styles.payNowBtnText, { color: '#FFF' }]}>ĐÓNG</Text>
                 </TouchableOpacity>
               </View>
+            ) : (
+              /* Đã có Payment từ Backend */
+              <>
+                {/* Status Banner */}
+                <View style={[styles.statusBanner, isPaid ? styles.statusPaid : styles.statusUnpaid]}>
+                  <Ionicons
+                    name={isPaid ? 'checkmark-circle' : 'time-outline'}
+                    size={18}
+                    color={isPaid ? '#10B981' : '#F59E0B'}
+                  />
+                  <Text style={[styles.statusBannerText, { color: isPaid ? '#34D399' : '#FBBF24' }]}>
+                    {isPaid ? 'ĐÃ THANH TOÁN THÀNH CÔNG (SUCCESS)' : 'CHỜ THANH TOÁN (HÓA ĐƠN ĐIỆN TỬ)'}
+                  </Text>
+                </View>
+
+                {/* General Trip Info */}
+                <View style={styles.infoSection}>
+                  <Text style={styles.sectionHeader}>THÔNG TIN CHUYẾN CẤP CỨU</Text>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Bệnh nhân / Người gọi:</Text>
+                    <Text style={styles.infoValue}>
+                      {realPayment.patientName || 'Phan Văn Nam'}{realPayment.patientPhone ? ` (${realPayment.patientPhone})` : ''}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Mã cuộc gọi / Yêu cầu:</Text>
+                    <Text style={styles.infoValue}>
+                      #{realPayment.callId || callId}{realPayment.requestId ? ` • Yêu cầu #${realPayment.requestId}` : ''}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Xe cấp cứu tiếp nhận:</Text>
+                    <Text style={[styles.infoValue, { color: '#34D399', fontWeight: '700' }]}>
+                      {realPayment.licensePlate || 'Xe 115'} • {serviceTypeName}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Điểm đón (Hiện trường):</Text>
+                    <Text style={styles.infoValue} numberOfLines={2}>
+                      {realPayment.pickupAddress || 'Hiện trường sơ cấp cứu 115'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Bệnh viện tiếp nhận:</Text>
+                    <Text style={styles.infoValue} numberOfLines={2}>
+                      {realPayment.hospitalAddress || 'Bệnh viện Cấp Cứu 115'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>Quãng đường vận chuyển:</Text>
+                    <Text style={styles.infoValue}>{(realPayment.billableDistanceKm || distanceKm).toFixed(1)} km</Text>
+                  </View>
+                </View>
+
+                {/* Itemized Billing Breakdown */}
+                <View style={styles.itemsSection}>
+                  <Text style={styles.sectionHeader}>CHI TIẾT DỊCH VỤ & VIỆN PHÍ</Text>
+
+                  <View style={styles.billItemRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.billItemName}>
+                        Phí khởi động xe cấp cứu {serviceTypeCode}
+                      </Text>
+                      <Text style={styles.billItemSub}>
+                        {isBLS ? 'Cấp cứu tiêu chuẩn (BLS)' : 'Hồi sức cấp cứu nâng cao (ALS)'}
+                      </Text>
+                    </View>
+                    <Text style={styles.billItemPrice}>{formatVND(baseFare)}</Text>
+                  </View>
+
+                  <View style={styles.billItemRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                      <Text style={styles.billItemName}>Cước di chuyển theo quãng đường</Text>
+                      <Text style={styles.billItemSub}>
+                        {(realPayment.billableDistanceKm || distanceKm).toFixed(1)} km × {formatVND(pricePerKm)}/km
+                      </Text>
+                    </View>
+                    <Text style={styles.billItemPrice}>{formatVND(distanceFare)}</Text>
+                  </View>
+
+                  <View style={styles.divider} />
+
+                  <View style={[styles.summaryRow, styles.totalRow]}>
+                    <Text style={styles.totalLabel}>TỔNG CẦN THANH TOÁN:</Text>
+                    <Text style={styles.totalValue}>{formatVND(totalAmount)}</Text>
+                  </View>
+                </View>
+
+                {/* Payment Details if Paid */}
+                {isPaid ? (
+                  <View style={styles.paidDetailCard}>
+                    <View style={styles.paidHeaderRow}>
+                      <MaterialCommunityIcons name="shield-check" size={20} color="#10B981" />
+                      <Text style={styles.paidHeaderText}>HÓA ĐƠN ĐÃ ĐƯỢC XÁC THỰC</Text>
+                    </View>
+                    <Text style={styles.paidSubText}>Phương thức: {realPayment.paymentMethod || 'VIETQR'}</Text>
+                    {realPayment.externalTransactionId && (
+                      <Text style={styles.paidSubText}>Mã giao dịch: {realPayment.externalTransactionId}</Text>
+                    )}
+                    {realPayment.paidAt && (
+                      <Text style={styles.paidSubText}>
+                        Thời gian: {new Date(realPayment.paidAt).toLocaleString('vi-VN')}
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  /* Payment Methods Selection & VietQR if Unpaid */
+                  <View style={styles.paymentMethodSection}>
+                    <Text style={styles.sectionHeader}>PHƯƠNG THỨC THANH TOÁN</Text>
+
+                    <View style={styles.methodList}>
+                      <TouchableOpacity
+                        style={[styles.methodBtn, selectedMethod === 'VIETQR' && styles.methodBtnActive]}
+                        onPress={() => setSelectedMethod('VIETQR')}
+                      >
+                        <MaterialCommunityIcons
+                          name="qrcode-scan"
+                          size={18}
+                          color={selectedMethod === 'VIETQR' ? '#10B981' : '#94A3B8'}
+                        />
+                        <Text style={[styles.methodBtnText, selectedMethod === 'VIETQR' && styles.methodBtnTextActive]}>
+                          VietQR Ngân hàng
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.methodBtn, selectedMethod === 'VNPAY' && styles.methodBtnActive]}
+                        onPress={() => setSelectedMethod('VNPAY')}
+                      >
+                        <Ionicons
+                          name="card-outline"
+                          size={18}
+                          color={selectedMethod === 'VNPAY' ? '#10B981' : '#94A3B8'}
+                        />
+                        <Text style={[styles.methodBtnText, selectedMethod === 'VNPAY' && styles.methodBtnTextActive]}>
+                          VNPAY-QR
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.methodBtn, selectedMethod === 'MOMO' && styles.methodBtnActive]}
+                        onPress={() => setSelectedMethod('MOMO')}
+                      >
+                        <Ionicons
+                          name="wallet-outline"
+                          size={18}
+                          color={selectedMethod === 'MOMO' ? '#10B981' : '#94A3B8'}
+                        />
+                        <Text style={[styles.methodBtnText, selectedMethod === 'MOMO' && styles.methodBtnTextActive]}>
+                          Ví MoMo
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* QR Code display for VietQR */}
+                    {selectedMethod === 'VIETQR' && (
+                      <View style={styles.qrCard}>
+                        <Text style={styles.qrTitle}>QUÉT MÃ VIETQR ĐỂ THANH TOÁN</Text>
+                        <Image
+                          source={{
+                            uri: paymentMockService.getVietQRUrl(
+                              totalAmount,
+                              `Thanh toan cuoc cap cuu ${invoiceCode}`
+                            ),
+                          }}
+                          style={styles.qrImage}
+                          resizeMode="contain"
+                        />
+                        <Text style={styles.qrNote}>
+                          Sử dụng ứng dụng ngân hàng bất kỳ để quét mã chuyển khoản tự động.
+                        </Text>
+                      </View>
+                    )}
+
+                    {/* Pay Button */}
+                    <TouchableOpacity
+                      style={styles.payNowBtn}
+                      onPress={handlePayNow}
+                      disabled={isProcessing}
+                      activeOpacity={0.85}
+                    >
+                      {isProcessing ? (
+                        <ActivityIndicator size="small" color="#022C22" />
+                      ) : (
+                        <>
+                          <FontAwesome5 name="check-circle" size={16} color="#022C22" style={{ marginRight: 8 }} />
+                          <Text style={styles.payNowBtnText}>
+                            XÁC NHẬN THANH TOÁN ({formatVND(totalAmount)})
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
             )}
           </ScrollView>
         </View>

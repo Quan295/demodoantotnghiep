@@ -12,6 +12,9 @@ import {
   Vehicle,
   PaymentDetailResponse,
   PayPaymentRequest,
+  DriverEarningResponse,
+  DriverEarningDetailResponse,
+  DriverEarningSummaryResponse,
 } from '@/types';
 import { globalConfig } from './config';
 import { handleMockRequest } from './mockApi';
@@ -884,6 +887,39 @@ class ApiService {
     return await this.request<PaymentDetailResponse>(`/reporter/payments/${id}/pay`, {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  // --- 8. DRIVER EARNING APIS (/api/v1/driver/earnings) ---
+
+  /**
+   * GET /driver/earnings: Danh sách thu nhập theo từng nhiệm vụ
+   */
+  async getMyEarnings(): Promise<DriverEarningResponse[]> {
+    return await this.request<DriverEarningResponse[]>('/driver/earnings');
+  }
+
+  /**
+   * GET /driver/earnings/summary: Tổng hợp thu nhập dự kiến & đã nhận
+   */
+  async getMyEarningSummary(): Promise<DriverEarningSummaryResponse> {
+    return await this.request<DriverEarningSummaryResponse>('/driver/earnings/summary');
+  }
+
+  /**
+   * GET /driver/earnings/{missionId}: Chi tiết thu nhập theo missionId
+   */
+  async getMyEarningByMission(missionId: number | string): Promise<DriverEarningDetailResponse> {
+    return await this.request<DriverEarningDetailResponse>(`/driver/earnings/${missionId}`);
+  }
+
+  /**
+   * POST /driver/earnings/{missionId}/collect-cash: Xác nhận đã thu tiền mặt từ bệnh nhân
+   * Amount lấy từ PaymentTransaction trên BE, KHÔNG nhận từ client để tránh gian lận
+   */
+  async collectCash(missionId: number | string): Promise<DriverEarningDetailResponse> {
+    return await this.request<DriverEarningDetailResponse>(`/driver/earnings/${missionId}/collect-cash`, {
+      method: 'POST',
     });
   }
 }

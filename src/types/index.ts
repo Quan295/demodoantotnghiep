@@ -328,7 +328,11 @@ export type CaseStatus =
 
 export interface EmergencyCall {
   id: string | number;
+  callId?: number;
   status: string;
+  callStatus?: string;
+  dispatchRequestId?: number | null;
+  dispatchRequestStatus?: string | null;
   description?: string;
   createdAt: string;
   updatedAt?: string;
@@ -364,7 +368,9 @@ export interface CallStatusResponse {
   callStatus?: string;
   status?: string;
   requestId?: string | number | null;
+  dispatchRequestId?: string | number | null;
   requestStatus?: string | null;
+  dispatchRequestStatus?: string | null;
   missionId?: string | number | null;
   missionStatus?: string | null;
   statusText?: string;
@@ -657,7 +663,7 @@ export interface PaymentDetailResponse {
   callId: number;
   requestId?: number;
   missionId?: number;
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | string;
+  status: 'PENDING' | 'SUCCESS' | 'PAID' | 'FAILED' | 'REFUNDED' | string;
   patientName?: string;
   patientPhone?: string;
   pickupAddress?: string;
@@ -679,6 +685,40 @@ export interface PaymentDetailResponse {
 
 export interface PayPaymentRequest {
   paymentMethod: 'VIETQR' | 'VNPAY' | 'MOMO';
+}
+
+// --- 7.2. BACKEND DRIVER EARNING DTOS (/api/v1/driver/earnings) ---
+export interface DriverEarningResponse {
+  missionId: number;
+  serviceTypeCode?: string;
+  grossFare: number;
+  platformCommission: number;
+  afterCommission: number;
+  driverAmount: number;
+  providerAmount?: number;
+  paymentStatus: string;
+}
+
+export interface DriverEarningDetailResponse {
+  missionId: number;
+  requestId?: number;
+  callId?: number;
+  distanceKm: number;
+  grossFare: number;
+  platformCommission: number;
+  afterCommission: number;
+  driverAmount: number;
+  providerAmount?: number;
+  collectionStatus?: string;
+  collectedAmount?: number;
+  collectedAt?: string | null;
+  paymentStatus: string;
+}
+
+export interface DriverEarningSummaryResponse {
+  pendingEarnings: number;
+  paidEarnings: number;
+  missionCount: number;
 }
 
 // --- 8. DRIVER TRIP EARNINGS (THU NHẬP & THU TIỀN THEO CUỐC CHO TÀI XẾ) ---

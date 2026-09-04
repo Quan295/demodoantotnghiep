@@ -15,6 +15,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { api } from '@/services/api';
 import { CallStatusResponse, CallTrackingResponse, EmergencyCall, LatLng } from '@/types';
+import { resolveEmergencyStatus } from '@/utils/statusHelper';
 import AmbulanceMap from '@/components/AmbulanceMap';
 import PaymentInvoiceModal from '@/components/PaymentInvoiceModal';
 
@@ -137,20 +138,13 @@ export default function TrackingScreen() {
           setProgress(res.tracking.progress);
         }
 
-        // Status mapping chi tiết từng giai đoạn cứu thương
-        const currentSt = (
-          res.missionStatus ||
-          res.dispatchRequestStatus ||
-          (res as any).requestStatus ||
-          res.callStatus ||
-          (res as any).status ||
-          ''
-        ).toUpperCase();
-        if (currentSt === 'DISPATCHED' || currentSt === 'ASSIGNED' || currentSt === 'RECOMMENDING') {
+        // Dùng chung resolver chuẩn hóa cho toàn app
+        const currentSt = resolveEmergencyStatus(res);
+        if (currentSt === 'DISPATCHED') {
           setStatus('DISPATCHED');
-        } else if (currentSt === 'ACCEPTED' || currentSt === 'EN_ROUTE' || currentSt === 'RUNNING') {
+        } else if (currentSt === 'EN_ROUTE') {
           setStatus('EN_ROUTE');
-        } else if (currentSt === 'ARRIVED_SCENE' || currentSt === 'ARRIVED' || currentSt === 'AT_SCENE') {
+        } else if (currentSt === 'ARRIVED_SCENE') {
           setStatus('ARRIVED_SCENE');
           setEta(0);
           setDistance(0);
@@ -162,7 +156,7 @@ export default function TrackingScreen() {
           setEta(0);
           setDistance(0);
           setProgress(100);
-        } else if (currentSt === 'COMPLETED' || currentSt === 'FINISHED' || currentSt === 'CLOSED') {
+        } else if (currentSt === 'COMPLETED') {
           setStatus('COMPLETED');
           setEta(0);
           setDistance(0);

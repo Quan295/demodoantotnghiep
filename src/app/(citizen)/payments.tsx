@@ -79,14 +79,18 @@ export default function ReporterPaymentsScreen() {
     fetchPayments();
   }, [fetchPayments]);
 
+  const isPaymentSuccess = useCallback((p?: PaymentDetailResponse | null) => {
+    return p?.status === 'SUCCESS' || p?.status === 'PAID';
+  }, []);
+
   // Filtered payments
   const filteredPayments = useMemo(() => {
     if (activeFilter === 'ALL') return payments;
     return payments.filter(p => {
-      const isPaid = p.status === 'PAID' || !!p.paidAt;
+      const isPaid = isPaymentSuccess(p);
       return activeFilter === 'PAID' ? isPaid : !isPaid;
     });
-  }, [payments, activeFilter]);
+  }, [payments, activeFilter, isPaymentSuccess]);
 
   // Stats
   const stats = useMemo(() => {
@@ -96,7 +100,7 @@ export default function ReporterPaymentsScreen() {
     let pendingTotal = 0;
 
     payments.forEach(p => {
-      const isPaid = p.status === 'PAID' || !!p.paidAt;
+      const isPaid = isPaymentSuccess(p);
       const amount = p.totalAmount || 0;
       if (isPaid) {
         paidTotal += amount;
@@ -107,7 +111,7 @@ export default function ReporterPaymentsScreen() {
     });
 
     return { totalCount, pendingCount, paidTotal, pendingTotal };
-  }, [payments]);
+  }, [payments, isPaymentSuccess]);
 
   // Format currency
   const formatVND = (num?: number | null) => {
@@ -160,7 +164,7 @@ export default function ReporterPaymentsScreen() {
           p.paymentId === selectedPayment.paymentId
             ? {
                 ...p,
-                status: 'PAID',
+                status: 'SUCCESS',
                 paymentMethod: selectedMethod,
                 paidAt: new Date().toISOString(),
                 externalTransactionId: result?.externalTransactionId || 'TXN_' + Date.now(),
@@ -185,6 +189,8 @@ export default function ReporterPaymentsScreen() {
     const memo = `CAPCUU ${paymentId}`;
     return `https://img.vietqr.io/image/${bank}-${acc}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(name)}`;
   };
+
+  const isModalPaid = isPaymentSuccess(selectedPayment);
 
   return (
     <View style={styles.container}>
@@ -322,7 +328,7 @@ export default function ReporterPaymentsScreen() {
                 </View>
               }
               renderItem={({ item }) => {
-                const isPaid = item.status === 'PAID' || !!item.paidAt;
+                const isPaid = isPaymentSuccess(item);
                 return (
                   <View style={[styles.card, isPaid ? styles.cardPaidBorder : styles.cardPendingBorder]}>
                     {/* Card Header */}
@@ -472,14 +478,14 @@ export default function ReporterPaymentsScreen() {
                 <View style={styles.modalHeader}>
                   <View style={styles.modalHeaderIconWrap}>
                     <MaterialCommunityIcons
-                      name={selectedPayment.status === 'PAID' ? 'check-decagram' : 'credit-card-fast'}
+                      name={isModalPaid ? 'check-decagram' : 'credit-card-fast'}
                       size={22}
-                      color={selectedPayment.status === 'PAID' ? '#10B981' : '#EF4444'}
+                      color={isModalPaid ? '#10B981' : '#EF4444'}
                     />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.modalHeaderTitle}>
-                      {selectedPayment.status === 'PAID'
+                      {isModalPaid
                         ? 'Biên Lai Cấp Cứu Điện Tử'
                         : 'Thanh Toán Chi Phí Ca Cấp Cứu'}
                     </Text>
@@ -500,29 +506,29 @@ export default function ReporterPaymentsScreen() {
                   <View
                     style={[
                       styles.modalStatusBanner,
-                      selectedPayment.status === 'PAID'
+                      isModalPaid
                         ? styles.modalBannerPaid
                         : styles.modalBannerPending,
                     ]}
                   >
                     <Ionicons
-                      name={selectedPayment.status === 'PAID' ? 'checkmark-circle' : 'alert-circle'}
+                      name={isModalPaid ? 'checkmark-circle' : 'alert-circle'}
                       size={20}
-                      color={selectedPayment.status === 'PAID' ? '#10B981' : '#F59E0B'}
+                      color={isModalPaid ? '#10B981' : '#F59E0B'}
                     />
                     <View style={{ flex: 1, marginLeft: 10 }}>
                       <Text
                         style={[
                           styles.bannerTitle,
-                          { color: selectedPayment.status === 'PAID' ? '#10B981' : '#F59E0B' },
+                          { color: isModalPaid ? '#10B981' : '#F59E0B' },
                         ]}
                       >
-                        {selectedPayment.status === 'PAID'
+                        {isModalPaid
                           ? 'HÓA ĐƠN ĐÃ ĐƯỢC THANH TOÁN'
                           : 'HÓA ĐƠN ĐANG CHỜ THANH TOÁN'}
                       </Text>
                       <Text style={styles.bannerSubtitle}>
-                        {selectedPayment.status === 'PAID'
+                        {isModalPaid
                           ? `Thanh toán qua ${selectedPayment.paymentMethod || 'VIETQR'} lúc ${formatDate(selectedPayment.paidAt)}`
                           : 'Vui lòng chọn cổng thanh toán điện tử để hoàn tất chi phí dịch vụ'}
                       </Text>
@@ -612,7 +618,7 @@ export default function ReporterPaymentsScreen() {
                       <Text style={styles.totalAmountVal}>{formatVND(selectedPayment.totalAmount)}</Text>
                     </View>
 
-                    {selectedPayment.status === 'PAID' && selectedPayment.externalTransactionId && (
+                    {isModalPaid && selectedPayment.externalTransactionId && (
                       <View style={styles.transactionBox}>
                         <MaterialCommunityIcons name="barcode-scan" size={16} color="#10B981" />
                         <Text style={styles.transactionText}>
@@ -623,7 +629,7 @@ export default function ReporterPaymentsScreen() {
                   </View>
 
                   {/* Payment Gateway Selection (If Pending) */}
-                  {selectedPayment.status !== 'PAID' && !selectedPayment.paidAt && (
+                  {!isModalPaid && (
                     <View style={styles.modalSectionCard}>
                       <Text style={styles.modalSectionTitle}>CHỌN PHƯƠNG THỨC THANH TOÁN ĐIỆN TỬ</Text>
 
@@ -755,7 +761,7 @@ export default function ReporterPaymentsScreen() {
 
                 {/* Modal Bottom Action Button */}
                 <View style={styles.modalBottomBar}>
-                  {selectedPayment.status === 'PAID' ? (
+                  {isModalPaid ? (
                     <TouchableOpacity
                       style={styles.modalCloseFullBtn}
                       onPress={() => setShowPayModal(false)}
