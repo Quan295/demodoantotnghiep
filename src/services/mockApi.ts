@@ -273,5 +273,109 @@ export async function handleMockRequest<T = any>(path: string, options: RequestI
     return MOCK_DISPATCH_MISSIONS as T;
   }
 
+  // --- Reporter Payment Mocks ---
+  if (path === '/reporter/payments' && (!options.method || options.method === 'GET')) {
+    return MOCK_REPORTER_PAYMENTS as T;
+  }
+
+  if (path.startsWith('/reporter/payments/by-call/')) {
+    const cid = parseInt(path.split('/')[4], 10);
+    const found = MOCK_REPORTER_PAYMENTS.find(p => p.callId === cid) || MOCK_REPORTER_PAYMENTS[0];
+    return found as T;
+  }
+
+  if (path.endsWith('/pay') && options.method === 'POST') {
+    const parts = path.split('/');
+    const pid = parseInt(parts[3], 10);
+    const body = options.body ? JSON.parse(options.body as string) : {};
+    const found = MOCK_REPORTER_PAYMENTS.find(p => p.paymentId === pid) || MOCK_REPORTER_PAYMENTS[0];
+    found.status = 'PAID';
+    found.paymentMethod = body.paymentMethod || 'VIETQR';
+    found.paidAt = new Date().toISOString();
+    found.externalTransactionId = 'TXN_' + Date.now().toString(36).toUpperCase();
+    return found as T;
+  }
+
+  if (path.startsWith('/reporter/payments/')) {
+    const pid = parseInt(path.split('/')[3], 10);
+    const found = MOCK_REPORTER_PAYMENTS.find(p => p.paymentId === pid) || MOCK_REPORTER_PAYMENTS[0];
+    return found as T;
+  }
+
   return {} as T;
 }
+
+const MOCK_REPORTER_PAYMENTS: any[] = [
+  {
+    paymentId: 101,
+    callId: 1,
+    requestId: 1001,
+    missionId: 501,
+    status: 'PAID',
+    patientName: 'Nguyễn Văn A',
+    patientPhone: '0988.115.115',
+    pickupAddress: '175 Chùa Bộc, Đống Đa, Hà Nội',
+    hospitalAddress: 'Bệnh viện Bạch Mai - 78 Giải Phóng, Đống Đa, Hà Nội',
+    serviceTypeCode: 'EMERGENCY_AMBULANCE',
+    licensePlate: '29A-115.88',
+    driverName: 'Bác sĩ / Tài xế Hùng',
+    completedAt: '2026-09-04T08:30:00Z',
+    billableDistanceKm: 6.5,
+    baseFare: 250000,
+    pricePerKm: 18000,
+    distanceFare: 117000,
+    totalAmount: 367000,
+    paymentMethod: 'VIETQR',
+    externalTransactionId: 'VIETQR_98234710',
+    createdAt: '2026-09-04T08:00:00Z',
+    paidAt: '2026-09-04T08:32:00Z',
+  },
+  {
+    paymentId: 102,
+    callId: 2,
+    requestId: 1002,
+    missionId: 502,
+    status: 'PENDING',
+    patientName: 'Trần Thị Mai',
+    patientPhone: '0912.345.678',
+    pickupAddress: 'Ngã tư Kim Mã - Liễu Giai, Ba Đình, Hà Nội',
+    hospitalAddress: 'Bệnh viện Nhi Trung Ương - 18/879 La Thành, Đống Đa, Hà Nội',
+    serviceTypeCode: 'EMERGENCY_AMBULANCE',
+    licensePlate: '29A-999.11',
+    driverName: 'Trần Văn Nam',
+    completedAt: '2026-09-04T14:45:00Z',
+    billableDistanceKm: 4.8,
+    baseFare: 250000,
+    pricePerKm: 18000,
+    distanceFare: 86400,
+    totalAmount: 336400,
+    paymentMethod: null,
+    externalTransactionId: null,
+    createdAt: '2026-09-04T14:15:00Z',
+    paidAt: null,
+  },
+  {
+    paymentId: 103,
+    callId: 3,
+    requestId: 1003,
+    missionId: 503,
+    status: 'PENDING',
+    patientName: 'Lê Hoàng Long',
+    patientPhone: '0903.999.888',
+    pickupAddress: 'Số 1 Đại Cồ Việt, Hai Bà Trưng, Hà Nội',
+    hospitalAddress: 'Bệnh viện Hữu Nghị Việt Đức - 40 Tràng Thi, Hoàn Kiếm, Hà Nội',
+    serviceTypeCode: 'CRITICAL_CARE_AMBULANCE',
+    licensePlate: '29B-115.66',
+    driverName: 'Nguyễn Văn Cường',
+    completedAt: '2026-09-04T18:20:00Z',
+    billableDistanceKm: 8.2,
+    baseFare: 300000,
+    pricePerKm: 20000,
+    distanceFare: 164000,
+    totalAmount: 464000,
+    paymentMethod: null,
+    externalTransactionId: null,
+    createdAt: '2026-09-04T17:40:00Z',
+    paidAt: null,
+  },
+];

@@ -10,6 +10,8 @@ import {
   TrackingUpdate,
   User,
   Vehicle,
+  PaymentDetailResponse,
+  PayPaymentRequest,
 } from '@/types';
 import { globalConfig } from './config';
 import { handleMockRequest } from './mockApi';
@@ -830,6 +832,39 @@ class ApiService {
     return await this.request('/driver-resource/status', {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  }
+
+  // --- 13. REPORTER PAYMENT (USER BILLING & PAYMENTS) ---
+
+  /**
+   * GET /reporter/payments: Danh sách chi phí các ca cấp cứu của tôi (User / Reporter)
+   */
+  async getMyReporterPayments(): Promise<PaymentDetailResponse[]> {
+    return await this.request<PaymentDetailResponse[]>('/reporter/payments');
+  }
+
+  /**
+   * GET /reporter/payments/{id}: Chi tiết chi phí theo paymentId
+   */
+  async getReporterPaymentById(id: number | string): Promise<PaymentDetailResponse> {
+    return await this.request<PaymentDetailResponse>(`/reporter/payments/${id}`);
+  }
+
+  /**
+   * GET /reporter/payments/by-call/{callId}: Chi tiết chi phí theo callId (Dùng cho Mobile Reporter)
+   */
+  async getReporterPaymentByCallId(callId: number | string): Promise<PaymentDetailResponse> {
+    return await this.request<PaymentDetailResponse>(`/reporter/payments/by-call/${callId}`);
+  }
+
+  /**
+   * POST /reporter/payments/{id}/pay: Xác nhận thanh toán điện tử (VIETQR / VNPAY / MOMO)
+   */
+  async payReporterPayment(id: number | string, data: PayPaymentRequest): Promise<PaymentDetailResponse> {
+    return await this.request<PaymentDetailResponse>(`/reporter/payments/${id}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   }
 }

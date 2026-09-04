@@ -5,6 +5,7 @@ export default function CitizenLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="sos" />
       <Stack.Screen name="tracking" />
+      <Stack.Screen name="payments" />
     </Stack>
   );
 }

@@ -395,9 +395,20 @@ export default function SOSScreen() {
               </Text>
             </View>
 
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-              <Ionicons name="log-out-outline" size={20} color="#F87171" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity
+                style={styles.paymentShortcutBtn}
+                onPress={() => router.push('/(citizen)/payments' as any)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="receipt-text-check" size={16} color="#10B981" />
+                <Text style={styles.paymentShortcutText}>Viện phí</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+                <Ionicons name="log-out-outline" size={20} color="#F87171" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* TAB BAR NAVIGATION */}
@@ -1116,6 +1127,22 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 18,
     fontWeight: '900',
+  },
+  paymentShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 12,
+  },
+  paymentShortcutText: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
   },
   logoutBtn: {
     width: 38,

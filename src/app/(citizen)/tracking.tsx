@@ -429,6 +429,16 @@ export default function TrackingScreen() {
               : 'XEM DỰ TÍNH VIỆN PHÍ & BHYT'}
           </Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.allPaymentsLinkBtn}
+          onPress={() => router.push('/(citizen)/payments' as any)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="history" size={13} color="#94A3B8" />
+          <Text style={styles.allPaymentsLinkText}>Lịch sử tất cả hóa đơn viện phí</Text>
+          <Ionicons name="chevron-forward" size={13} color="#64748B" />
+        </TouchableOpacity>
       </Animated.View>
 
       {/* Payment Invoice Modal */}
@@ -738,5 +748,18 @@ const styles = StyleSheet.create({
   },
   invoicePaymentBtnTextCompleted: {
     color: '#022C22',
+  },
+  allPaymentsLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 6,
+    gap: 6,
+  },
+  allPaymentsLinkText: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

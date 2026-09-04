@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -11,8 +11,9 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
-import { PaymentInvoice, PaymentMethod } from '@/types';
+import { PaymentInvoice, PaymentMethod, PaymentDetailResponse } from '@/types';
 import { paymentMockService } from '@/services/paymentMockService';
+import { api } from '@/services/api';
 
 interface PaymentInvoiceModalProps {
   visible: boolean;
@@ -29,29 +30,81 @@ export default function PaymentInvoiceModal({
 }: PaymentInvoiceModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('VIETQR');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [realPayment, setRealPayment] = useState<PaymentDetailResponse | null>(null);
+
+  // Fetch real payment from backend when opened
+  useEffect(() => {
+    if (!visible || !callId) return;
+
+    let isMounted = true;
+    (async () => {
+      try {
+        const res = await api.getReporterPaymentByCallId(callId);
+        if (isMounted && res && res.paymentId) {
+          setRealPayment(res);
+        }
+      } catch (err) {
+        // Im silent fallback to mock
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [visible, callId]);
 
   if (!callId) return null;
 
-  const invoice = paymentMockService.getInvoiceByCallId(callId);
-  const isPaid = invoice.paymentStatus === 'PAID';
+  const mockInvoice = paymentMockService.getInvoiceByCallId(callId);
+  
+  // Use real backend payment if available, else mock
+  const isPaid = realPayment ? (realPayment.status === 'PAID' || !!realPayment.paidAt) : mockInvoice.paymentStatus === 'PAID';
+  const totalAmount = realPayment?.totalAmount ?? mockInvoice.totalAmount;
+  const invoiceCode = realPayment ? `HĐ-${realPayment.paymentId}` : mockInvoice.invoiceCode;
+  const distanceKm = realPayment?.billableDistanceKm ?? mockInvoice.distanceKm;
+  const pickupAddress = realPayment?.pickupAddress || mockInvoice.pickupAddress;
+  const hospitalAddress = realPayment?.hospitalAddress || mockInvoice.hospitalAddress;
+  const licensePlate = realPayment?.licensePlate || mockInvoice.licensePlate;
+
+  const invoice = {
+    ...mockInvoice,
+    invoiceCode,
+    totalAmount,
+    paymentStatus: (isPaid ? 'PAID' : 'UNPAID') as any,
+    distanceKm,
+    pickupAddress,
+    hospitalAddress,
+    licensePlate,
+    patientName: realPayment?.patientName || mockInvoice.patientName,
+    patientPhone: realPayment?.patientPhone || mockInvoice.patientPhone,
+    paymentMethod: (realPayment?.paymentMethod as any) || mockInvoice.paymentMethod,
+    paidAt: realPayment?.paidAt || mockInvoice.paidAt,
+  };
 
   const handlePayNow = async () => {
     try {
       setIsProcessing(true);
-      // Giả lập xử lý thanh toán cổng 1.2 giây
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const updated = await paymentMockService.processPayment(callId, selectedMethod);
+
+      if (realPayment && realPayment.paymentId && selectedMethod !== 'CASH') {
+        const updated = await api.payReporterPayment(realPayment.paymentId, {
+          paymentMethod: selectedMethod as 'VIETQR' | 'VNPAY' | 'MOMO',
+        });
+        setRealPayment(updated);
+      }
+
+      const updatedMock = await paymentMockService.processPayment(callId, selectedMethod);
       setIsProcessing(false);
+
       Alert.alert(
-        'Thanh Toán Thành Công',
-        `Hóa đơn ${updated.invoiceCode} trị giá ${paymentMockService.formatCurrency(updated.totalAmount)} đã được thanh toán thành công qua ${selectedMethod}.`
+        'Thanh Toán Thành Công! 🎉',
+        `Hóa đơn ${invoiceCode} trị giá ${paymentMockService.formatCurrency(totalAmount)} đã được thanh toán thành công qua ${selectedMethod}.`
       );
       if (onPaymentSuccess) {
-        onPaymentSuccess(updated);
+        onPaymentSuccess(updatedMock);
       }
     } catch (e: any) {
       setIsProcessing(false);
-      Alert.alert('Lỗi', 'Thanh toán không thành công, vui lòng thử lại');
+      Alert.alert('Lỗi', e?.message || 'Thanh toán không thành công, vui lòng thử lại');
     }
   };
 

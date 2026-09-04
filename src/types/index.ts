@@ -651,6 +651,36 @@ export interface PaymentInvoice {
   notes?: string;
 }
 
+// --- 7.1. BACKEND REPORTER PAYMENT DTOS (/api/v1/reporter/payments) ---
+export interface PaymentDetailResponse {
+  paymentId: number;
+  callId: number;
+  requestId?: number;
+  missionId?: number;
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | string;
+  patientName?: string;
+  patientPhone?: string;
+  pickupAddress?: string;
+  hospitalAddress?: string;
+  serviceTypeCode?: string;
+  licensePlate?: string;
+  driverName?: string;
+  completedAt?: string;
+  billableDistanceKm?: number;
+  baseFare?: number;
+  pricePerKm?: number;
+  distanceFare?: number;
+  totalAmount: number;
+  paymentMethod?: 'CASH' | 'VIETQR' | 'VNPAY' | 'MOMO' | string;
+  externalTransactionId?: string;
+  createdAt?: string;
+  paidAt?: string;
+}
+
+export interface PayPaymentRequest {
+  paymentMethod: 'VIETQR' | 'VNPAY' | 'MOMO';
+}
+
 // --- 8. DRIVER TRIP EARNINGS (THU NHẬP & THU TIỀN THEO CUỐC CHO TÀI XẾ) ---
 export type DriverCollectionStatus = 'COLLECTED_CASH' | 'PAID_DIGITAL' | 'PENDING';
 
