@@ -581,18 +581,27 @@ export default function ReporterPaymentsScreen() {
                     <Text style={styles.modalSectionTitle}>BẢNG KÊ CHI PHÍ VẬN CHUYỂN</Text>
 
                     <View style={styles.modalDetailRow}>
-                      <Text style={styles.detailLabel}>Cước cơ bản (Xuất xe cấp cứu):</Text>
+                      <Text style={styles.detailLabel}>
+                        Phí khởi động ({selectedPayment.serviceTypeCode === 'BLS' ? 'BLS Tiêu chuẩn' : 'ALS Hồi sức nâng cao'}):
+                      </Text>
                       <Text style={styles.detailVal}>
-                        {formatVND(selectedPayment.baseFare || 250000)}
+                        {formatVND(selectedPayment.baseFare ?? (selectedPayment.serviceTypeCode === 'BLS' ? 200000 : 300000))}
                       </Text>
                     </View>
 
                     <View style={styles.modalDetailRow}>
                       <Text style={styles.detailLabel}>
-                        Cước cự ly ({selectedPayment.billableDistanceKm?.toFixed(1) || '0'} km × {formatVND(selectedPayment.pricePerKm || 18000)}/km):
+                        Cước cự ly ({selectedPayment.billableDistanceKm?.toFixed(1) || '0'} km × {formatVND(selectedPayment.pricePerKm ?? (selectedPayment.serviceTypeCode === 'BLS' ? 40000 : 45000))}/km):
                       </Text>
                       <Text style={styles.detailVal}>
-                        {formatVND(selectedPayment.distanceFare || 0)}
+                        {formatVND(
+                          selectedPayment.distanceFare ??
+                            Math.round(
+                              (selectedPayment.billableDistanceKm || 0) *
+                                (selectedPayment.pricePerKm ??
+                                  (selectedPayment.serviceTypeCode === 'BLS' ? 40000 : 45000))
+                            )
+                        )}
                       </Text>
                     </View>
 

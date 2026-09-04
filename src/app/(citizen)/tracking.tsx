@@ -435,7 +435,7 @@ export default function TrackingScreen() {
           >
             {status === 'COMPLETED'
               ? 'XEM HÓA ĐƠN & CHI PHÍ CẤP CỨU'
-              : 'XEM DỰ TÍNH VIỆN PHÍ & BHYT'}
+              : 'XEM DỰ TÍNH CHI PHÍ CẤP CỨU'}
           </Text>
         </TouchableOpacity>
 

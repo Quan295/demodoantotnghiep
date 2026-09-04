@@ -57,11 +57,25 @@ export default function PaymentInvoiceModal({
 
   const mockInvoice = paymentMockService.getInvoiceByCallId(callId);
   
+  // Xác định gói dịch vụ: ALS (300k base, 45k/km) vs BLS (200k base, 40k/km)
+  const isBLS = (realPayment?.serviceTypeCode === 'BLS') || 
+                (mockInvoice.vehicleType?.toUpperCase().includes('BLS')) || 
+                (!realPayment && Number(callId) % 2 === 1);
+  const serviceTypeCode = isBLS ? 'BLS' : 'ALS';
+  const serviceTypeName = isBLS ? 'Xe Cấp Cứu Tiêu Chuẩn (BLS)' : 'Xe Cấp Cứu Hồi Sức Nâng Cao (ALS)';
+
+  const defaultBaseFare = isBLS ? 200000 : 300000;
+  const defaultPricePerKm = isBLS ? 40000 : 45000;
+
+  const baseFare = realPayment?.baseFare ?? defaultBaseFare;
+  const pricePerKm = realPayment?.pricePerKm ?? defaultPricePerKm;
+  const distanceKm = realPayment?.billableDistanceKm ?? mockInvoice.distanceKm;
+  const distanceFare = realPayment?.distanceFare ?? Math.round(distanceKm * pricePerKm);
+  const totalAmount = realPayment?.totalAmount ?? (baseFare + distanceFare);
+
   // Use real backend payment if available, else mock
   const isPaid = realPayment ? (realPayment.status === 'PAID' || !!realPayment.paidAt) : mockInvoice.paymentStatus === 'PAID';
-  const totalAmount = realPayment?.totalAmount ?? mockInvoice.totalAmount;
   const invoiceCode = realPayment ? `HĐ-${realPayment.paymentId}` : mockInvoice.invoiceCode;
-  const distanceKm = realPayment?.billableDistanceKm ?? mockInvoice.distanceKm;
   const pickupAddress = realPayment?.pickupAddress || mockInvoice.pickupAddress;
   const hospitalAddress = realPayment?.hospitalAddress || mockInvoice.hospitalAddress;
   const licensePlate = realPayment?.licensePlate || mockInvoice.licensePlate;
@@ -75,6 +89,7 @@ export default function PaymentInvoiceModal({
     pickupAddress,
     hospitalAddress,
     licensePlate,
+    vehicleType: realPayment?.serviceTypeCode ? serviceTypeName : mockInvoice.vehicleType,
     patientName: realPayment?.patientName || mockInvoice.patientName,
     patientPhone: realPayment?.patientPhone || mockInvoice.patientPhone,
     paymentMethod: (realPayment?.paymentMethod as any) || mockInvoice.paymentMethod,
@@ -200,34 +215,39 @@ export default function PaymentInvoiceModal({
             <View style={styles.itemsSection}>
               <Text style={styles.sectionHeader}>CHI TIẾT DỊCH VỤ & VIỆN PHÍ</Text>
 
-              {invoice.items.map((item, idx) => (
-                <View key={`item-${idx}`} style={styles.billItemRow}>
-                  <Text style={[styles.billItemName, item.isDiscount && styles.discountText]}>
-                    {item.name}
+              <View style={styles.billItemRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.billItemName}>
+                    Phí khởi động xe cấp cứu {serviceTypeCode}
                   </Text>
-                  <Text style={[styles.billItemPrice, item.isDiscount && styles.discountText]}>
-                    {item.isDiscount ? '-' : ''}{paymentMockService.formatCurrency(Math.abs(item.totalPrice))}
+                  <Text style={styles.billItemSub}>
+                    {isBLS ? 'Cấp cứu tiêu chuẩn (BLS)' : 'Hồi sức cấp cứu nâng cao (ALS)'}
                   </Text>
                 </View>
-              ))}
-
-              <View style={styles.divider} />
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tạm tính dịch vụ:</Text>
-                <Text style={styles.summaryValue}>{paymentMockService.formatCurrency(invoice.subtotal)}</Text>
-              </View>
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Hỗ trợ BHYT:</Text>
-                <Text style={[styles.summaryValue, { color: '#10B981' }]}>
-                  -{paymentMockService.formatCurrency(invoice.discountAmount)}
+                <Text style={styles.billItemPrice}>
+                  {paymentMockService.formatCurrency(baseFare)}
                 </Text>
               </View>
 
+              <View style={styles.billItemRow}>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.billItemName}>
+                    Cước di chuyển theo quãng đường
+                  </Text>
+                  <Text style={styles.billItemSub}>
+                    {distanceKm.toFixed(1)} km × {paymentMockService.formatCurrency(pricePerKm)}/km
+                  </Text>
+                </View>
+                <Text style={styles.billItemPrice}>
+                  {paymentMockService.formatCurrency(distanceFare)}
+                </Text>
+              </View>
+
+              <View style={styles.divider} />
+
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>TỔNG CẦN THANH TOÁN:</Text>
-                <Text style={styles.totalValue}>{paymentMockService.formatCurrency(invoice.totalAmount)}</Text>
+                <Text style={styles.totalValue}>{paymentMockService.formatCurrency(totalAmount)}</Text>
               </View>
             </View>
 
@@ -476,12 +496,17 @@ const styles = StyleSheet.create({
   },
   billItemName: {
     color: '#E2E8F0',
-    fontSize: 12,
-    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  billItemSub: {
+    color: '#94A3B8',
+    fontSize: 11,
+    marginTop: 2,
   },
   billItemPrice: {
     color: '#F8FAFC',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
   },
   discountText: {
