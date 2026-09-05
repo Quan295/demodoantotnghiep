@@ -38,8 +38,6 @@ import {
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 import { useDriverLocationTracking } from '@/hooks/useDriverLocationTracking';
-import { paymentMockService } from '@/services/paymentMockService';
-import DriverTripEarningModal from '@/components/DriverTripEarningModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -75,8 +73,6 @@ export default function DriverDashboard() {
   const [selectedDetailMission, setSelectedDetailMission] = useState<DispatchMission | null>(null);
   const [showDetailModal, setShowDetailModal] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
-  const [selectedEarningMission, setSelectedEarningMission] = useState<DispatchMission | null>(null);
-  const [showTripEarningModal, setShowTripEarningModal] = useState<boolean>(false);
 
   // Reusable Single Source of Truth Driver Location Tracking
   const shouldTrack = autoSyncEnabled || !!activeRunningMission;
@@ -721,20 +717,6 @@ export default function DriverDashboard() {
                       </Text>
                     ) : null}
 
-                    {(() => {
-                      const earning = paymentMockService.getDriverTripEarning(item.id, {
-                        requestId: item.requestId,
-                      });
-                      return (
-                        <View style={styles.tripEarningPill}>
-                          <MaterialCommunityIcons name="cash-plus" size={14} color="#10B981" />
-                          <Text style={styles.tripEarningPillText}>
-                            Thù lao cuốc: +{paymentMockService.formatCurrency(earning.driverTotalEarned)}
-                          </Text>
-                        </View>
-                      );
-                    })()}
-
                     <View style={styles.missionMetaRow}>
                       <Text style={styles.missionMetaItem}>
                         <Ionicons name="time-outline" size={12} color="#64748B" /> {formattedTime}
@@ -752,13 +734,10 @@ export default function DriverDashboard() {
 
                       <TouchableOpacity
                         style={styles.tripEarningBtn}
-                        onPress={() => {
-                          setSelectedEarningMission(item);
-                          setShowTripEarningModal(true);
-                        }}
+                        onPress={() => router.push('/(driver)/earnings' as any)}
                       >
-                        <MaterialCommunityIcons name="cash-multiple" size={14} color="#10B981" />
-                        <Text style={styles.tripEarningBtnText}>THÙ LAO CUỐC</Text>
+                        <MaterialCommunityIcons name="wallet-outline" size={14} color="#10B981" />
+                        <Text style={styles.tripEarningBtnText}>VÍ & THU NHẬP</Text>
                       </TouchableOpacity>
 
                       {['DISPATCHED', 'ACCEPTED', 'EN_ROUTE', 'ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL'].includes(item.status) && (
@@ -933,26 +912,18 @@ export default function DriverDashboard() {
                     <TouchableOpacity
                       style={styles.modalEarningBtn}
                       onPress={() => {
-                        setSelectedEarningMission(selectedDetailMission);
-                        setShowTripEarningModal(true);
+                        setShowDetailModal(false);
+                        router.push('/(driver)/earnings' as any);
                       }}
                     >
-                      <MaterialCommunityIcons name="cash-multiple" size={16} color="#10B981" style={{ marginRight: 8 }} />
-                      <Text style={styles.modalEarningBtnText}>BẢNG KÊ THÙ LAO & THU CƯỚC CUỐC NÀY</Text>
+                      <MaterialCommunityIcons name="wallet-outline" size={16} color="#10B981" style={{ marginRight: 8 }} />
+                      <Text style={styles.modalEarningBtnText}>XEM VÍ & THU NHẬP QUYẾT TOÁN</Text>
                     </TouchableOpacity>
                   </ScrollView>
                 )}
               </View>
             </View>
           </Modal>
-
-          {/* Driver Trip Earning Modal */}
-          <DriverTripEarningModal
-            visible={showTripEarningModal}
-            onClose={() => setShowTripEarningModal(false)}
-            missionId={selectedEarningMission?.id}
-            requestId={selectedEarningMission?.requestId}
-          />
 
           {/* INCOMING MISSION POPUP MODAL (POST /accept & POST /reject) */}
           <Animated.View style={[styles.incomingOrderSheet, { transform: [{ translateY: slideAnim }] }]}>

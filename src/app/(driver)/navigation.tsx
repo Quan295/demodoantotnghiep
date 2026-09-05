@@ -25,8 +25,6 @@ import {
 } from '@/types';
 import AmbulanceMap from '@/components/AmbulanceMap';
 import { useDriverLocationTracking } from '@/hooks/useDriverLocationTracking';
-import { paymentMockService } from '@/services/paymentMockService';
-import DriverTripEarningModal from '@/components/DriverTripEarningModal';
 
 export default function NavigationScreen() {
   const router = useRouter();
@@ -43,7 +41,6 @@ export default function NavigationScreen() {
   const [loadingMission, setLoadingMission] = useState<boolean>(true);
   const [loadingAction, setLoadingAction] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showEarningModal, setShowEarningModal] = useState<boolean>(false);
 
   // Continuous Real-time Driver GPS Tracking (Single Source of Truth)
   const dbDriverLocation: LatLng | undefined =
@@ -564,25 +561,17 @@ export default function NavigationScreen() {
             {/* Trip Earnings Button for Driver */}
             <TouchableOpacity
               style={styles.navTripEarningBtn}
-              onPress={() => setShowEarningModal(true)}
+              onPress={() => router.push('/(driver)/earnings' as any)}
               activeOpacity={0.85}
             >
-              <MaterialCommunityIcons name="cash-multiple" size={18} color="#10B981" style={{ marginRight: 8 }} />
+              <MaterialCommunityIcons name="wallet-outline" size={18} color="#10B981" style={{ marginRight: 8 }} />
               <Text style={styles.navTripEarningBtnText}>
-                XEM BẢNG KÊ THÙ LAO & THU CƯỚC CUỐC NÀY
+                XEM VÍ & THU NHẬP QUYẾT TOÁN
               </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       </SafeAreaView>
-
-      {/* Driver Trip Earning Modal */}
-      <DriverTripEarningModal
-        visible={showEarningModal}
-        onClose={() => setShowEarningModal(false)}
-        missionId={missionId}
-        requestId={requestId}
-      />
     </View>
   );
 }

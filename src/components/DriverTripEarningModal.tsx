@@ -140,7 +140,7 @@ export default function DriverTripEarningModal({
               <View>
                 <Text style={styles.modalTitle}>THÙ LAO & THU NHẬP THEO CUỐC</Text>
                 <Text style={styles.subCodeText}>
-                  Cuốc xe #{missionId} • Yêu cầu #{realEarning?.requestId || requestId || '20'}
+                  Cuốc xe #{missionId} {realEarning?.requestId || requestId ? `• Yêu cầu #${realEarning?.requestId || requestId}` : ''}
                 </Text>
               </View>
             </View>
