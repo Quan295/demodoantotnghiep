@@ -709,16 +709,19 @@ export interface DriverEarningDetailResponse {
   afterCommission: number;
   driverAmount: number;
   providerAmount?: number;
+  paymentStatus: string;
+  paymentMethod?: string | null;
+  paidAt?: string | null;
   collectionStatus?: string;
   collectedAmount?: number;
   collectedAt?: string | null;
-  paymentStatus: string;
 }
 
 export interface DriverEarningSummaryResponse {
   pendingEarnings: number;
   paidEarnings: number;
   missionCount: number;
+  averagePerMission?: number;
 }
 
 // --- 8. DRIVER TRIP EARNINGS (THU NHẬP & THU TIỀN THEO CUỐC CHO TÀI XẾ) ---

@@ -391,6 +391,13 @@ export default function DriverDashboard() {
 
             <View style={styles.headerActions}>
               <TouchableOpacity
+                style={styles.walletBtn}
+                onPress={() => router.push('/(driver)/earnings' as any)}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="wallet-outline" size={18} color="#10B981" />
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={styles.refreshBtn}
                 onPress={() => {
                   fetchDriverResource(true);
@@ -495,6 +502,20 @@ export default function DriverDashboard() {
               />
               <Text style={[styles.tabText, activeTab === 'vehicle' && styles.tabTextActive]}>
                 Xe & Thiết Bị
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.tabItem}
+              onPress={() => router.push('/(driver)/earnings' as any)}
+            >
+              <MaterialCommunityIcons
+                name="wallet-outline"
+                size={16}
+                color="#10B981"
+              />
+              <Text style={[styles.tabText, { color: '#10B981' }]}>
+                Thu Nhập
               </Text>
             </TouchableOpacity>
           </View>
@@ -1124,6 +1145,16 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: 'row',
     gap: 8,
+  },
+  walletBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   refreshBtn: {
     width: 36,

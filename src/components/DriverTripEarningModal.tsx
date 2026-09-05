@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -10,8 +10,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
-import { DriverTripEarning } from '@/types';
-import { paymentMockService } from '@/services/paymentMockService';
+import { DriverTripEarning, DriverEarningDetailResponse } from '@/types';
+import { api } from '@/services/api';
 
 interface DriverTripEarningModalProps {
   visible: boolean;
@@ -19,7 +19,7 @@ interface DriverTripEarningModalProps {
   missionId?: string | number | null;
   requestId?: string | number | null;
   distanceKm?: number;
-  onConfirmed?: (earning: DriverTripEarning) => void;
+  onConfirmed?: (earning: any) => void;
 }
 
 export default function DriverTripEarningModal({
@@ -30,34 +30,96 @@ export default function DriverTripEarningModal({
   distanceKm,
   onConfirmed,
 }: DriverTripEarningModalProps) {
+  const [realEarning, setRealEarning] = useState<DriverEarningDetailResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+
+  const formatVND = (num?: number | null) => {
+    if (num == null || isNaN(num)) return '0 đ';
+    return new Intl.NumberFormat('vi-VN').format(Math.round(num)) + ' đ';
+  };
+
+  const formatDate = (iso?: string | null) => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleDateString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    if (visible && missionId) {
+      setLoading(true);
+      setRealEarning(null);
+      (async () => {
+        try {
+          const res = await api.getMyEarningByMission(missionId);
+          if (isMounted) {
+            setRealEarning(res);
+            setLoading(false);
+          }
+        } catch (err) {
+          console.warn('[DriverTripEarningModal] Load real earning error:', err);
+          if (isMounted) {
+            setLoading(false);
+          }
+        }
+      })();
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [visible, missionId]);
 
   if (!missionId) return null;
 
-  const earning = paymentMockService.getDriverTripEarning(missionId, {
-    requestId: requestId || undefined,
-    distanceKm: distanceKm || undefined,
-  });
-
-  const isCollected = earning.collectionStatus !== 'PENDING';
+  const isPaid = realEarning?.paymentStatus === 'SUCCESS' || realEarning?.paymentStatus === 'PAID';
+  const driverEarned = realEarning?.driverAmount ?? 0;
+  const grossFare = realEarning?.grossFare ?? 0;
+  const platformFee = realEarning?.platformCommission ?? 0;
+  const providerEarned = realEarning?.providerAmount ?? 0;
+  const billableDist = realEarning?.distanceKm ?? distanceKm ?? 0;
 
   const handleConfirmCash = async () => {
-    try {
-      setIsProcessing(true);
-      await new Promise(resolve => setTimeout(resolve, 800));
-      const updated = await paymentMockService.confirmDriverCashCollection(missionId, earning.totalTripFare);
-      setIsProcessing(false);
-      Alert.alert(
-        'Đã Xác Nhận Thu Tiền Mặt',
-        `Đã ghi nhận thu tiền mặt ${paymentMockService.formatCurrency(earning.totalTripFare)} từ người nhà cho cuốc xe #${missionId}.`
-      );
-      if (onConfirmed) {
-        onConfirmed(updated);
-      }
-    } catch (e) {
-      setIsProcessing(false);
-      Alert.alert('Lỗi', 'Không thể xác nhận lúc này, vui lòng thử lại');
-    }
+    Alert.alert(
+      'Xác Nhận Thu Tiền Mặt 💵',
+      `Bạn xác nhận đã nhận đủ ${formatVND(grossFare)} bằng tiền mặt từ người nhà bệnh nhân cho cuốc xe #${missionId}?`,
+      [
+        { text: 'Hủy bỏ', style: 'cancel' },
+        {
+          text: 'XÁC NHẬN ĐÃ THU',
+          onPress: async () => {
+            try {
+              setIsProcessing(true);
+              const updated = await api.collectCash(missionId);
+              setRealEarning(updated);
+              setIsProcessing(false);
+
+              Alert.alert(
+                'Thành Công! 🎉',
+                `Đã xác nhận thu tiền mặt ${formatVND(grossFare)} từ người nhà cho cuốc xe #${missionId}. Thù lao tài xế đã được cộng vào ví!`
+              );
+              if (onConfirmed) {
+                onConfirmed(updated);
+              }
+            } catch (e: any) {
+              setIsProcessing(false);
+              Alert.alert('Lỗi', e?.message || 'Không thể xác nhận thu tiền mặt. Vui lòng thử lại sau.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -78,7 +140,7 @@ export default function DriverTripEarningModal({
               <View>
                 <Text style={styles.modalTitle}>THÙ LAO & THU NHẬP THEO CUỐC</Text>
                 <Text style={styles.subCodeText}>
-                  Cuốc xe #{earning.missionId} • Yêu cầu #{earning.requestId || '20'}
+                  Cuốc xe #{missionId} • Yêu cầu #{realEarning?.requestId || requestId || '20'}
                 </Text>
               </View>
             </View>
@@ -88,104 +150,126 @@ export default function DriverTripEarningModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
-            {/* Total Earning Hero Box */}
-            <View style={styles.heroEarningBox}>
-              <Text style={styles.heroEarningLabel}>THÙ LAO TÀI XẾ NHẬN ĐƯỢC</Text>
-              <Text style={styles.heroEarningValue}>
-                +{paymentMockService.formatCurrency(earning.driverTotalEarned)}
+          {loading ? (
+            <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+              <ActivityIndicator size="large" color="#10B981" />
+              <Text style={{ color: '#94A3B8', marginTop: 10, fontSize: 12 }}>
+                Đang tải dữ liệu thù lao tài xế...
               </Text>
-              <View style={styles.heroBadgeRow}>
-                <Ionicons name="checkmark-circle" size={14} color="#10B981" />
-                <Text style={styles.heroBadgeText}>Đã cộng vào ví thu nhập tài xế</Text>
-              </View>
             </View>
-
-            {/* Compensation Breakdown */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>CHI TIẾT THÙ LAO LÁI XE CẤP CỨU</Text>
-
-              <View style={styles.itemRow}>
-                <Text style={styles.itemLabel}>Thù lao mở cuốc cố định:</Text>
-                <Text style={styles.itemValue}>{paymentMockService.formatCurrency(earning.baseEarning)}</Text>
-              </View>
-
-              <View style={styles.itemRow}>
-                <Text style={styles.itemLabel}>Cước theo km ({earning.distanceKm} km x 15k):</Text>
-                <Text style={styles.itemValue}>{paymentMockService.formatCurrency(earning.distanceEarning)}</Text>
-              </View>
-
-              <View style={styles.itemRow}>
-                <Text style={styles.itemLabel}>Phụ cấp kíp trực / khẩn cấp:</Text>
-                <Text style={[styles.itemValue, { color: '#34D399' }]}>
-                  +{paymentMockService.formatCurrency(earning.emergencyAllowance)}
+          ) : (
+            <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
+              {/* Total Earning Hero Box */}
+              <View style={styles.heroEarningBox}>
+                <Text style={styles.heroEarningLabel}>THÙ LAO TÀI XẾ NHẬN ĐƯỢC</Text>
+                <Text style={styles.heroEarningValue}>
+                  +{formatVND(driverEarned)}
                 </Text>
+                <View style={styles.heroBadgeRow}>
+                  <Ionicons
+                    name={isPaid ? 'checkmark-circle' : 'time'}
+                    size={14}
+                    color={isPaid ? '#10B981' : '#F59E0B'}
+                  />
+                  <Text style={[styles.heroBadgeText, { color: isPaid ? '#10B981' : '#F59E0B' }]}>
+                    {isPaid ? 'Đã cộng vào ví thu nhập tài xế' : 'Chờ hoàn tất thanh toán / thu tiền mặt'}
+                  </Text>
+                </View>
               </View>
 
-              <View style={styles.divider} />
+              {/* Compensation Breakdown */}
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>CHI TIẾT THÙ LAO LÁI XE CẤP CỨU</Text>
 
-              <View style={styles.itemRow}>
-                <Text style={styles.totalLabel}>TỔNG THỰC NHẬN CUỐC NÀY:</Text>
-                <Text style={styles.totalValue}>{paymentMockService.formatCurrency(earning.driverTotalEarned)}</Text>
-              </View>
-            </View>
+                <View style={styles.itemRow}>
+                  <Text style={styles.itemLabel}>Cự ly vận chuyển tính phí:</Text>
+                  <Text style={[styles.itemValue, { color: '#38BDF8' }]}>
+                    {billableDist ? `${billableDist.toFixed(1)} km` : 'Chưa tính'}
+                  </Text>
+                </View>
 
-            {/* Fare Collection Section from Patient */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>THU CƯỚC TỪ NGƯỜI NHÀ / BỆNH NHÂN</Text>
+                <View style={styles.itemRow}>
+                  <Text style={styles.itemLabel}>Tổng cước chuyến xe:</Text>
+                  <Text style={styles.itemValue}>{formatVND(grossFare)}</Text>
+                </View>
 
-              <View style={styles.itemRow}>
-                <Text style={styles.itemLabel}>Tổng cước chuyến xe 115:</Text>
-                <Text style={[styles.itemValue, { fontWeight: '800' }]}>
-                  {paymentMockService.formatCurrency(earning.totalTripFare)}
-                </Text>
-              </View>
+                <View style={styles.itemRow}>
+                  <Text style={styles.itemLabel}>Chiết khấu hệ thống:</Text>
+                  <Text style={[styles.itemValue, { color: '#F87171' }]}>
+                    -{formatVND(platformFee)}
+                  </Text>
+                </View>
 
-              <View style={styles.itemRow}>
-                <Text style={styles.itemLabel}>Hình thức thu:</Text>
-                <Text style={styles.itemValue}>
-                  {earning.collectionStatus === 'PAID_DIGITAL' ? 'Chuyển khoản VietQR' : 'Tiền mặt'}
-                </Text>
-              </View>
+                {providerEarned > 0 && (
+                  <View style={styles.itemRow}>
+                    <Text style={styles.itemLabel}>Phần nhà xe / đơn vị quản lý:</Text>
+                    <Text style={styles.itemValue}>{formatVND(providerEarned)}</Text>
+                  </View>
+                )}
 
-              {/* Status Banner */}
-              <View style={[styles.collectionBanner, isCollected ? styles.bannerPaid : styles.bannerPending]}>
-                <Ionicons
-                  name={isCollected ? 'checkmark-circle' : 'alert-circle'}
-                  size={16}
-                  color={isCollected ? '#10B981' : '#F59E0B'}
-                />
-                <Text style={[styles.bannerText, { color: isCollected ? '#34D399' : '#FBBF24' }]}>
-                  {earning.collectionStatus === 'PAID_DIGITAL'
-                    ? 'Người nhà đã chuyển khoản VietQR thành công'
-                    : earning.collectionStatus === 'COLLECTED_CASH'
-                    ? 'Tài xế đã xác nhận thu tiền mặt đầy đủ'
-                    : 'Chưa thu tiền cước cuốc xe'}
-                </Text>
+                <View style={styles.divider} />
+
+                <View style={styles.itemRow}>
+                  <Text style={styles.totalLabel}>THÙ LAO TÀI XẾ THỰC NHẬN:</Text>
+                  <Text style={styles.totalValue}>+{formatVND(driverEarned)}</Text>
+                </View>
               </View>
 
-              {/* Cash Collection Button if needed */}
-              {earning.collectionStatus === 'PENDING' && (
-                <TouchableOpacity
-                  style={styles.confirmCashBtn}
-                  onPress={handleConfirmCash}
-                  disabled={isProcessing}
-                  activeOpacity={0.85}
-                >
-                  {isProcessing ? (
-                    <ActivityIndicator size="small" color="#022C22" />
-                  ) : (
-                    <>
-                      <FontAwesome5 name="money-bill-wave" size={15} color="#022C22" style={{ marginRight: 8 }} />
-                      <Text style={styles.confirmCashBtnText}>
-                        XÁC NHẬN ĐÃ THU TIỀN MẶT ({paymentMockService.formatCurrency(earning.totalTripFare)})
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
-            </View>
-          </ScrollView>
+              {/* Fare Collection Section from Patient */}
+              <View style={styles.sectionCard}>
+                <Text style={styles.sectionTitle}>THU CƯỚC TỪ NGƯỜI NHÀ / BỆNH NHÂN</Text>
+
+                <View style={styles.itemRow}>
+                  <Text style={styles.itemLabel}>Tổng cước chuyến xe 115:</Text>
+                  <Text style={[styles.itemValue, { fontWeight: '800' }]}>
+                    {formatVND(grossFare)}
+                  </Text>
+                </View>
+
+                <View style={styles.itemRow}>
+                  <Text style={styles.itemLabel}>Hình thức thanh toán:</Text>
+                  <Text style={styles.itemValue}>
+                    {realEarning?.paymentMethod || (isPaid ? 'ĐIỆN TỬ / VIETQR' : 'Chưa thu')}
+                  </Text>
+                </View>
+
+                {/* Status Banner */}
+                <View style={[styles.collectionBanner, isPaid ? styles.bannerPaid : styles.bannerPending]}>
+                  <Ionicons
+                    name={isPaid ? 'checkmark-circle' : 'alert-circle'}
+                    size={16}
+                    color={isPaid ? '#10B981' : '#F59E0B'}
+                  />
+                  <Text style={[styles.bannerText, { color: isPaid ? '#34D399' : '#FBBF24' }]}>
+                    {isPaid
+                      ? `Đã thanh toán qua ${realEarning?.paymentMethod || 'VIETQR'} ${formatDate(realEarning?.paidAt)}`
+                      : 'Chưa thu tiền cước cuốc xe. Có thể thu tiền mặt trực tiếp.'}
+                  </Text>
+                </View>
+
+                {/* Cash Collection Button if needed */}
+                {!isPaid && (
+                  <TouchableOpacity
+                    style={styles.confirmCashBtn}
+                    onPress={handleConfirmCash}
+                    disabled={isProcessing}
+                    activeOpacity={0.85}
+                  >
+                    {isProcessing ? (
+                      <ActivityIndicator size="small" color="#022C22" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="money-bill-wave" size={15} color="#022C22" style={{ marginRight: 8 }} />
+                        <Text style={styles.confirmCashBtnText}>
+                          XÁC NHẬN ĐÃ THU TIỀN MẶT ({formatVND(grossFare)})
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
+          )}
         </View>
       </View>
     </Modal>
@@ -202,20 +286,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '88%',
+    paddingBottom: 30,
+    maxHeight: '85%',
     borderWidth: 1,
-    borderColor: '#1E293B',
-    paddingBottom: 24,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 14,
+    alignItems: 'center',
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -223,53 +305,54 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   iconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   modalTitle: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '800',
+    color: '#F8FAFC',
+    fontSize: 13,
+    fontWeight: '900',
     letterSpacing: 0.5,
   },
   subCodeText: {
     color: '#94A3B8',
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#1E293B',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   scrollArea: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    padding: 16,
   },
   heroEarningBox: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.35)',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
     borderRadius: 16,
     padding: 16,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
     marginBottom: 16,
   },
   heroEarningLabel: {
-    color: '#94A3B8',
-    fontSize: 11,
+    color: '#34D399',
+    fontSize: 10,
     fontWeight: '800',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
   heroEarningValue: {
-    color: '#10B981',
+    color: '#FFF',
     fontSize: 26,
     fontWeight: '900',
     marginVertical: 4,
@@ -278,92 +361,90 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 2,
+    marginTop: 4,
   },
   heroBadgeText: {
-    color: '#34D399',
+    color: '#10B981',
     fontSize: 11,
     fontWeight: '700',
   },
   sectionCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
     borderRadius: 14,
     padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
     marginBottom: 14,
+    gap: 8,
   },
   sectionTitle: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    marginBottom: 10,
-    textTransform: 'uppercase',
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    marginBottom: 4,
   },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 5,
+    alignItems: 'center',
   },
   itemLabel: {
-    color: '#94A3B8',
-    fontSize: 12,
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
   },
   itemValue: {
     color: '#F8FAFC',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
   },
   divider: {
     height: 1,
-    backgroundColor: '#334155',
-    marginVertical: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginVertical: 4,
   },
   totalLabel: {
-    color: '#FFF',
+    color: '#34D399',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   totalValue: {
-    color: '#10B981',
+    color: '#34D399',
     fontSize: 15,
     fontWeight: '900',
   },
   collectionBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
+    padding: 10,
     borderRadius: 8,
-    marginTop: 10,
+    gap: 8,
+    marginTop: 4,
   },
   bannerPaid: {
     backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
   },
   bannerPending: {
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   bannerText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     flex: 1,
   },
   confirmCashBtn: {
-    backgroundColor: '#10B981',
-    borderRadius: 10,
-    paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 8,
   },
   confirmCashBtnText: {
     color: '#022C22',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '900',
   },
 });

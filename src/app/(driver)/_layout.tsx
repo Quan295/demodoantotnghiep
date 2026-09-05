@@ -5,6 +5,7 @@ export default function DriverLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="navigation" />
+      <Stack.Screen name="earnings" />
     </Stack>
   );
 }
