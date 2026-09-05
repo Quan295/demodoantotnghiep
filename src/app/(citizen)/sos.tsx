@@ -363,7 +363,7 @@ export default function SOSScreen() {
       case 'uploading':
         return { label: 'Đang upload file ghi âm lên hệ thống...', icon: 'cloud-upload-outline', color: '#38BDF8' };
       case 'submitting':
-        return { label: 'Đang gửi yêu cầu cấp cứu (POST /calls/voice)...', icon: 'send-outline', color: '#A78BFA' };
+        return { label: 'Đang gửi yêu cầu cấp cứu...', icon: 'send-outline', color: '#A78BFA' };
       case 'waiting_ai':
         return { label: 'AI đang phân tích giọng nói & điều phối xe...', icon: 'hourglass-outline', color: '#F59E0B' };
       case 'success':
@@ -492,7 +492,7 @@ export default function SOSScreen() {
                 </View>
               </View>
 
-              {/* SECTION 1: VOICE EMERGENCY CALL (POST /calls/voice) */}
+              {/* SECTION 1: VOICE EMERGENCY CALL */}
               <View style={styles.voiceEmergencyCard}>
                 <View style={styles.sectionHeader}>
                   <View style={styles.sectionIconCircle}>
@@ -500,7 +500,7 @@ export default function SOSScreen() {
                   </View>
                   <View>
                     <Text style={styles.sectionTitle}>GỌI CẤP CỨU BẰNG GIỌNG NÓI</Text>
-                    <Text style={styles.sectionSubTitle}>API: POST /calls/voice (AI Tự động nhận diện)</Text>
+                    <Text style={styles.sectionSubTitle}>AI tự động nhận diện giọng nói & điều phối xe</Text>
                   </View>
                 </View>
 
@@ -543,7 +543,7 @@ export default function SOSScreen() {
                 )}
               </View>
 
-              {/* SECTION 2: ONE-TAP LOCATION SOS (POST /calls/sos) */}
+              {/* SECTION 2: ONE-TAP LOCATION SOS */}
               <View style={styles.oneTapCard}>
                 <View style={styles.sectionHeader}>
                   <View style={[styles.sectionIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
@@ -551,7 +551,7 @@ export default function SOSScreen() {
                   </View>
                   <View>
                     <Text style={styles.sectionTitle}>GỬI ĐỊNH VỊ CẤP CỨU 1-CHẠM</Text>
-                    <Text style={styles.sectionSubTitle}>API: POST /calls/sos (Gửi vị trí khẩn cấp)</Text>
+                    <Text style={styles.sectionSubTitle}>Gửi tọa độ GPS hiện trường khẩn cấp</Text>
                   </View>
                 </View>
 
@@ -662,9 +662,10 @@ export default function SOSScreen() {
                     <TouchableOpacity
                       style={styles.viewStatusBtn}
                       onPress={() => handleOpenCallStatusModal(item.id)}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons name="information-circle-outline" size={14} color="#38BDF8" />
-                      <Text style={styles.viewStatusBtnText}>XEM TRẠNG THÁI</Text>
+                      <Ionicons name="information-circle-outline" size={13} color="#38BDF8" />
+                      <Text style={styles.viewStatusBtnText} numberOfLines={1}>XEM TRẠNG THÁI</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -681,9 +682,10 @@ export default function SOSScreen() {
                            },
                          });
                        }}
+                      activeOpacity={0.85}
                     >
-                      <FontAwesome5 name="map-marked-alt" size={13} color="#022C22" />
-                      <Text style={styles.trackBtnText}>THEO DÕI XE</Text>
+                      <FontAwesome5 name="map-marked-alt" size={12} color="#022C22" />
+                      <Text style={styles.trackBtnText} numberOfLines={1}>THEO DÕI XE</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
@@ -718,8 +720,8 @@ export default function SOSScreen() {
                         );
                       }}
                     >
-                      <MaterialCommunityIcons name="receipt-text" size={14} color="#34D399" />
-                      <Text style={styles.invoiceBtnText}>HÓA ĐƠN</Text>
+                      <MaterialCommunityIcons name="receipt-text" size={13} color="#34D399" />
+                      <Text style={styles.invoiceBtnText} numberOfLines={1}>HÓA ĐƠN</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1397,42 +1399,45 @@ const styles = StyleSheet.create({
   },
   callActionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 6,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
   viewStatusBtn: {
-    flex: 1,
+    flex: 1.25,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     backgroundColor: 'rgba(56, 189, 248, 0.12)',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(56, 189, 248, 0.25)',
   },
   viewStatusBtnText: {
     color: '#38BDF8',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
+    letterSpacing: -0.2,
   },
   trackBtn: {
-    flex: 1,
+    flex: 1.05,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     backgroundColor: '#10B981',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: 8,
     elevation: 3,
   },
   trackBtnText: {
     color: '#022C22',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   emptyContainer: {
@@ -1659,20 +1664,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   invoiceBtn: {
-    flex: 0.9,
+    flex: 0.85,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
     backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(16, 185, 129, 0.25)',
   },
   invoiceBtnText: {
     color: '#34D399',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
   },
 });

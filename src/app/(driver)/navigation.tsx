@@ -445,7 +445,7 @@ export default function NavigationScreen() {
                   onPress={handleRejectMission}
                   disabled={loadingAction}
                 >
-                  <Text style={styles.declineBtnText}>TỪ CHỐI (POST /reject)</Text>
+                  <Text style={styles.declineBtnText}>TỪ CHỐI</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.primaryBtn]}
@@ -455,7 +455,7 @@ export default function NavigationScreen() {
                   {loadingAction ? (
                     <ActivityIndicator size="small" color="#022C22" />
                   ) : (
-                    <Text style={styles.primaryBtnText}>CHẤP NHẬN (POST /accept)</Text>
+                    <Text style={styles.primaryBtnText}>CHẤP NHẬN</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -473,7 +473,7 @@ export default function NavigationScreen() {
                 ) : (
                   <>
                     <FontAwesome5 name="ambulance" size={16} color="#022C22" style={{ marginRight: 8 }} />
-                    <Text style={styles.primaryBtnText}>BẮT ĐẦU DI CHUYỂN (POST /start)</Text>
+                    <Text style={styles.primaryBtnText}>BẮT ĐẦU DI CHUYỂN</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -491,7 +491,7 @@ export default function NavigationScreen() {
                 ) : (
                   <>
                     <MaterialCommunityIcons name="map-marker-check" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.arriveBtnText}>ĐÃ ĐẾN HIỆN TRƯỜNG (POST /arrive-scene)</Text>
+                    <Text style={styles.arriveBtnText}>ĐÃ ĐẾN HIỆN TRƯỜNG</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -509,7 +509,7 @@ export default function NavigationScreen() {
                 ) : (
                   <>
                     <MaterialCommunityIcons name="hospital-building" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.transportBtnText}>BẮT ĐẦU VẬN CHUYỂN (POST /start-transport)</Text>
+                    <Text style={styles.transportBtnText}>BẮT ĐẦU VẬN CHUYỂN</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -527,7 +527,7 @@ export default function NavigationScreen() {
                 ) : (
                   <>
                     <Ionicons name="checkmark-done-circle" size={20} color="#022C22" style={{ marginRight: 8 }} />
-                    <Text style={styles.arriveHospitalBtnText}>ĐÃ ĐẾN BỆNH VIỆN (POST /arrive-hospital)</Text>
+                    <Text style={styles.arriveHospitalBtnText}>ĐÃ ĐẾN BỆNH VIỆN</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -545,7 +545,7 @@ export default function NavigationScreen() {
                 ) : (
                   <>
                     <MaterialCommunityIcons name="check-circle" size={20} color="#FFF" style={{ marginRight: 8 }} />
-                    <Text style={styles.completeBtnText}>HOÀN THÀNH NHIỆM VỤ (POST /complete)</Text>
+                    <Text style={styles.completeBtnText}>HOÀN THÀNH NHIỆM VỤ</Text>
                   </>
                 )}
               </TouchableOpacity>

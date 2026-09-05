@@ -572,7 +572,7 @@ export default function DriverDashboard() {
                     <View>
                       <Text style={styles.gpsPanelTitle}>ĐỒNG BỘ GPS POSTGIS</Text>
                       <Text style={styles.gpsPanelSubTitle}>
-                        PATCH /driver-resource/location
+                        Tự động đồng bộ vị trí thời gian thực
                       </Text>
                     </View>
                   </View>
@@ -802,7 +802,7 @@ export default function DriverDashboard() {
               <View style={styles.specCard}>
                 <View style={styles.specHeaderRow}>
                   <MaterialCommunityIcons name="car-info" size={18} color="#10B981" />
-                  <Text style={styles.specSectionTitle}>CHI TIẾT XE CỨU THƯƠNG (GET /driver-resource)</Text>
+                  <Text style={styles.specSectionTitle}>CHI TIẾT XE CỨU THƯƠNG</Text>
                 </View>
 
                 {driverResource ? (
@@ -987,7 +987,7 @@ export default function DriverDashboard() {
                 onPress={handleDeclineOrder}
                 activeOpacity={0.8}
               >
-                <Text style={styles.declineBtnText}>TỪ CHỐI (POST /reject)</Text>
+                <Text style={styles.declineBtnText}>TỪ CHỐI</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1000,7 +1000,7 @@ export default function DriverDashboard() {
                   style={styles.acceptBtnGradient}
                 >
                   <FontAwesome5 name="ambulance" size={16} color="#022C22" style={{ marginRight: 8 }} />
-                  <Text style={styles.acceptBtnText}>CHẤP NHẬN (POST /accept)</Text>
+                  <Text style={styles.acceptBtnText}>CHẤP NHẬN</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
