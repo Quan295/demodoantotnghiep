@@ -463,6 +463,7 @@ export default function SOSScreen() {
               style={styles.scrollView}
               contentContainerStyle={styles.scrollContent}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
               {/* GPS Location Bar */}
               <View style={styles.locationCard}>
@@ -492,58 +493,7 @@ export default function SOSScreen() {
                 </View>
               </View>
 
-              {/* SECTION 1: VOICE EMERGENCY CALL */}
-              <View style={styles.voiceEmergencyCard}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.sectionIconCircle}>
-                    <MaterialCommunityIcons name="microphone-message" size={18} color="#38BDF8" />
-                  </View>
-                  <View>
-                    <Text style={styles.sectionTitle}>GỌI CẤP CỨU BẰNG GIỌNG NÓI</Text>
-                    <Text style={styles.sectionSubTitle}>AI tự động nhận diện giọng nói & điều phối xe</Text>
-                  </View>
-                </View>
-
-                {/* Recorder Component */}
-                <EmergencyRecorder
-                  status={recorderStatus}
-                  onStatusChange={setRecorderStatus}
-                  audioUri={audioUri}
-                  onAudioUriChange={setAudioUri}
-                  durationMillis={durationMillis}
-                  onDurationChange={setDurationMillis}
-                  disabled={flowBusy}
-                />
-
-                {/* Submit Voice Button */}
-                {recorderStatus === 'recorded' && audioUri && (
-                  <TouchableOpacity
-                    style={[styles.submitVoiceBtn, flowBusy && styles.btnDisabled]}
-                    onPress={handleSubmitVoiceEmergency}
-                    disabled={flowBusy}
-                    activeOpacity={0.8}
-                  >
-                    {flowBusy ? (
-                      <ActivityIndicator size="small" color="#FFF" />
-                    ) : (
-                      <>
-                        <FontAwesome5 name="paper-plane" size={15} color="#FFF" style={{ marginRight: 8 }} />
-                        <Text style={styles.submitVoiceBtnText}>GỬI GHI ÂM CẤP CỨU NGAY</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
-
-                {/* Flow Progress Banner */}
-                {flowInfo && (
-                  <View style={[styles.flowBanner, { borderColor: flowInfo.color }]}>
-                    <Ionicons name={flowInfo.icon as any} size={18} color={flowInfo.color} />
-                    <Text style={[styles.flowText, { color: flowInfo.color }]}>{flowInfo.label}</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* SECTION 2: ONE-TAP LOCATION SOS */}
+              {/* SECTION 1: ONE-TAP LOCATION SOS */}
               <View style={styles.oneTapCard}>
                 <View style={styles.sectionHeader}>
                   <View style={[styles.sectionIconCircle, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
@@ -594,6 +544,58 @@ export default function SOSScreen() {
                   </Animated.View>
                 </View>
               </View>
+
+              {/* SECTION 2: VOICE EMERGENCY CALL */}
+              <View style={styles.voiceEmergencyCard}>
+                <View style={styles.sectionHeader}>
+                  <View style={styles.sectionIconCircle}>
+                    <MaterialCommunityIcons name="microphone-message" size={18} color="#38BDF8" />
+                  </View>
+                  <View>
+                    <Text style={styles.sectionTitle}>GỌI CẤP CỨU BẰNG GIỌNG NÓI</Text>
+                    <Text style={styles.sectionSubTitle}>AI tự động nhận diện giọng nói & điều phối xe</Text>
+                  </View>
+                </View>
+
+                {/* Recorder Component */}
+                <EmergencyRecorder
+                  status={recorderStatus}
+                  onStatusChange={setRecorderStatus}
+                  audioUri={audioUri}
+                  onAudioUriChange={setAudioUri}
+                  durationMillis={durationMillis}
+                  onDurationChange={setDurationMillis}
+                  disabled={flowBusy}
+                />
+
+                {/* Submit Voice Button */}
+                {recorderStatus === 'recorded' && audioUri && (
+                  <TouchableOpacity
+                    style={[styles.submitVoiceBtn, flowBusy && styles.btnDisabled]}
+                    onPress={handleSubmitVoiceEmergency}
+                    disabled={flowBusy}
+                    activeOpacity={0.8}
+                  >
+                    {flowBusy ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="paper-plane" size={15} color="#FFF" style={{ marginRight: 8 }} />
+                        <Text style={styles.submitVoiceBtnText}>GỬI GHI ÂM CẤP CỨU NGAY</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {/* Flow Progress Banner */}
+                {flowInfo && (
+                  <View style={[styles.flowBanner, { borderColor: flowInfo.color }]}>
+                    <Ionicons name={flowInfo.icon as any} size={18} color={flowInfo.color} />
+                    <Text style={[styles.flowText, { color: flowInfo.color }]}>{flowInfo.label}</Text>
+                  </View>
+                )}
+              </View>
+            
             </ScrollView>
           )}
 
