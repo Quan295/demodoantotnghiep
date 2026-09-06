@@ -1,25 +1,30 @@
 import { api } from '@/services/api';
 import { extractUserRoles, mapApiRoleToLocal } from '@/services/config';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { SafeAreaView as SafeAreaViewContext } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
-type AuthMode = 
-  | 'login' 
-  | 'registerPhone' 
-  | 'registerOtp' 
-  | 'registerDetails' 
-  | 'forgotPassword' 
+type AuthMode =
+  | 'login'
+  | 'registerPhone'
+  | 'registerOtp'
+  | 'registerDetails'
+  | 'forgotPassword'
   | 'resetPassword';
 
 export default function AuthScreen() {
@@ -27,6 +32,11 @@ export default function AuthScreen() {
 
   const [mode, setMode] = useState<AuthMode>('login');
   const [loading, setLoading] = useState(false);
+
+  // Focus & visibility states
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   // Login fields
   const [loginUsername, setLoginUsername] = useState('');
@@ -47,7 +57,6 @@ export default function AuthScreen() {
   const [phoneVerificationToken, setPhoneVerificationToken] = useState('');
 
   const handleLogin = async () => {
-    // Đảm bảo setLoading(false) LUÔN chạy trong mọi trường hợp
     let shouldStopLoading = false;
     try {
       if (!loginUsername || !loginPassword) {
@@ -58,11 +67,11 @@ export default function AuthScreen() {
       setLoading(true);
       shouldStopLoading = true;
       console.log('[Login] Attempting login with:', { loginUsername, passwordLength: loginPassword.length });
-      
+
       const loginData = await api.login(loginUsername.trim(), loginPassword);
-      
+
       console.log('[Login] Login api returned:', loginData);
-      
+
       if (!loginData) {
         throw new Error('Không nhận được dữ liệu từ server');
       }
@@ -71,7 +80,7 @@ export default function AuthScreen() {
       const firstRole = roles[0] || 'REPORTER';
       const role = mapApiRoleToLocal(firstRole);
       console.log('[Login] Mapped role:', role, '| fullName:', loginData.fullName);
-      
+
       let targetRoute: any = '/(citizen)/sos';
       switch (role) {
         case 'admin':
@@ -91,14 +100,12 @@ export default function AuthScreen() {
           targetRoute = '/(citizen)/sos';
           break;
       }
-      
+
       console.log('[Login] Navigating to targetRoute:', targetRoute);
-      // Wrap navigation in try-catch để lỗi router không làm kẹt loading
       try {
         router.replace(targetRoute);
       } catch (navError: any) {
         console.warn('[Login] Navigation warning:', navError?.message);
-        // Thử lại nếu lỗi
         setTimeout(() => {
           try { router.replace(targetRoute); } catch {}
         }, 200);
@@ -106,7 +113,7 @@ export default function AuthScreen() {
     } catch (error: any) {
       console.error('[Login] Login error:', error?.name, error?.message);
       Alert.alert(
-        'Đăng nhập thất bại', 
+        'Đăng nhập thất bại',
         error?.message || 'Vui lòng kiểm tra tên đăng nhập và mật khẩu, hoặc thử lại sau'
       );
     } finally {
@@ -121,8 +128,8 @@ export default function AuthScreen() {
       setLoading(true);
       const res = await api.sendOtp(phoneNumber);
       const rawData = (res as any)?.data ?? res;
-      const otpCode = typeof rawData === 'string' || typeof rawData === 'number' 
-        ? String(rawData) 
+      const otpCode = typeof rawData === 'string' || typeof rawData === 'number'
+        ? String(rawData)
         : (rawData?.otpCode ? String(rawData.otpCode) : '');
       const otpText = otpCode ? `\n\nMã OTP xác thực của bạn: ${otpCode}` : '';
 
@@ -144,8 +151,8 @@ export default function AuthScreen() {
       setLoading(true);
       const res = await api.verifyOtp(phoneNumber, otpCode);
       const rawData = (res as any)?.data ?? res;
-      const token = typeof rawData === 'string' 
-        ? rawData 
+      const token = typeof rawData === 'string'
+        ? rawData
         : (rawData?.verificationToken || rawData?.phoneVerificationToken || rawData?.token || '');
       if (token) {
         setPhoneVerificationToken(token);
@@ -219,8 +226,8 @@ export default function AuthScreen() {
       setLoading(true);
       const res = await api.forgotPassword(forgotPhone);
       const rawData = (res as any)?.data ?? res;
-      const otpCode = typeof rawData === 'string' || typeof rawData === 'number' 
-        ? String(rawData) 
+      const otpCode = typeof rawData === 'string' || typeof rawData === 'number'
+        ? String(rawData)
         : (rawData?.otpCode ? String(rawData.otpCode) : '');
       const otpText = otpCode ? `\n\nMã OTP xác thực của bạn: ${otpCode}` : '';
 
@@ -270,381 +277,856 @@ export default function AuthScreen() {
     setPhoneVerificationToken('');
   };
 
+  const getSubtitle = () => {
+    switch (mode) {
+      case 'login':
+        return 'Đăng nhập hệ thống điều phối & cấp cứu';
+      case 'registerPhone':
+        return 'Nhập số điện thoại để tạo tài khoản mới';
+      case 'registerOtp':
+        return 'Nhập mã OTP xác thực được gửi đến điện thoại';
+      case 'registerDetails':
+        return 'Hoàn tất thông tin cá nhân & tài khoản';
+      case 'forgotPassword':
+        return 'Khôi phục quyền truy cập vào tài khoản';
+      case 'resetPassword':
+        return 'Thiết lập mật khẩu bảo mật mới';
+    }
+  };
+
   return (
-    <SafeAreaViewContext style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.header}>
-          <Text style={styles.appName}>Ứng Dụng Cứu Hộ</Text>
-          <Text style={styles.subtitle}>
-            {mode === 'login' && 'Đăng nhập để tiếp tục'}
-            {mode === 'registerPhone' && 'Đăng ký tài khoản'}
-            {mode === 'registerOtp' && 'Xác minh OTP'}
-            {mode === 'registerDetails' && 'Hoàn thành đăng ký'}
-            {mode === 'forgotPassword' && 'Lấy lại mật khẩu'}
-            {mode === 'resetPassword' && 'Đặt lại mật khẩu'}
-          </Text>
-        </View>
-
-        {/* Login Form */}
-        {mode === 'login' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Tên đăng nhập</Text>
-              <TextInput
-                style={styles.input}
-                value={loginUsername}
-                onChangeText={setLoginUsername}
-                placeholder="Nhập tên đăng nhập"
-                autoCapitalize="none"
-              />
-            </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Mật khẩu</Text>
-              <TextInput
-                style={styles.input}
-                value={loginPassword}
-                onChangeText={setLoginPassword}
-                placeholder="Nhập mật khẩu"
-                secureTextEntry
-              />
-            </View>
-
-            <TouchableOpacity
-              style={styles.forgotLink}
-              onPress={() => setMode('forgotPassword')}
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <LinearGradient
+        colors={['#050811', '#0B132B', '#070B14']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.gradient}
+      >
+        <SafeAreaView style={styles.safeArea}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.keyboardAvoid}
+          >
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.forgotText}>Quên mật khẩu?</Text>
-            </TouchableOpacity>
+              {/* BRANDING HEADER */}
+              <View style={styles.header}>
+                <View style={styles.logoBadgeContainer}>
+                  <LinearGradient
+                    colors={['rgba(16, 185, 129, 0.25)', 'rgba(6, 95, 70, 0.4)']}
+                    style={styles.logoBadge}
+                  >
+                    <MaterialCommunityIcons name="ambulance" size={38} color="#10B981" />
+                  </LinearGradient>
+                  <View style={styles.onlinePill}>
+                    <View style={styles.onlineDot} />
+                    <Text style={styles.onlineText}>HỆ THỐNG 115</Text>
+                  </View>
+                </View>
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleLogin}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang xử lý...' : 'Đăng nhập'}
-              </Text>
-            </TouchableOpacity>
+                <Text style={styles.appName}>SEMD CẤP CỨU</Text>
+                <Text style={styles.subtitle}>{getSubtitle()}</Text>
+              </View>
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Chưa có tài khoản?</Text>
-              <TouchableOpacity onPress={() => {
-                resetAuthStates();
-                setMode('registerPhone');
-              }}>
-                <Text style={styles.linkText}>Đăng ký</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
+              {/* MAIN AUTH CARD */}
+              <View style={styles.formCard}>
+                {/* 1. LOGIN FORM */}
+                {mode === 'login' && (
+                  <View style={styles.form}>
+                    {/* Username Input */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>TÀI KHOẢN ĐĂNG NHẬP</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'loginUsername' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="person-outline"
+                          size={18}
+                          color={focusedInput === 'loginUsername' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={loginUsername}
+                          onChangeText={setLoginUsername}
+                          placeholder="Tên đăng nhập hoặc SĐT"
+                          placeholderTextColor="#64748B"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          onFocus={() => setFocusedInput('loginUsername')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                        {loginUsername.length > 0 && (
+                          <TouchableOpacity
+                            onPress={() => setLoginUsername('')}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#64748B" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
 
-        {/* Register Phone Form */}
-        {mode === 'registerPhone' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Số điện thoại</Text>
-              <TextInput
-                style={styles.input}
-                value={registerPhone}
-                onChangeText={setRegisterPhone}
-                placeholder="Nhập số điện thoại"
-                keyboardType="phone-pad"
-              />
-            </View>
+                    {/* Password Input */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>MẬT KHẨU</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'loginPassword' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={18}
+                          color={focusedInput === 'loginPassword' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={loginPassword}
+                          onChangeText={setLoginPassword}
+                          placeholder="Nhập mật khẩu"
+                          placeholderTextColor="#64748B"
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          onFocus={() => setFocusedInput('loginPassword')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={showPassword ? '#10B981' : '#64748B'}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleRegisterSendOtp}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang gửi...' : 'Gửi mã OTP'}
-              </Text>
-            </TouchableOpacity>
+                    {/* Forgot Password Link */}
+                    <TouchableOpacity
+                      style={styles.forgotLink}
+                      onPress={() => setMode('forgotPassword')}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+                    </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => {
-                resetAuthStates();
-                setMode('login');
-              }}
-            >
-              <Text style={styles.backText}>Quay lại đăng nhập</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                    {/* Login Submit Button */}
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleLogin}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>ĐĂNG NHẬP</Text>
+                            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
 
-        {/* Register OTP Form */}
-        {mode === 'registerOtp' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Mã OTP</Text>
-              <TextInput
-                style={styles.input}
-                value={registerOtp}
-                onChangeText={setRegisterOtp}
-                placeholder="Nhập mã OTP"
-                keyboardType="number-pad"
-              />
-            </View>
+                    {/* Footer switch to register */}
+                    <View style={styles.footer}>
+                      <Text style={styles.footerText}>Chưa có tài khoản?</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          resetAuthStates();
+                          setMode('registerPhone');
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={styles.linkText}>Đăng ký ngay</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleRegisterVerifyOtp}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang xác minh...' : 'Xác minh OTP'}
-              </Text>
-            </TouchableOpacity>
+                {/* 2. REGISTER PHONE FORM */}
+                {mode === 'registerPhone' && (
+                  <View style={styles.form}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>SỐ ĐIỆN THOẠI</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerPhone' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="call-outline"
+                          size={18}
+                          color={focusedInput === 'registerPhone' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerPhone}
+                          onChangeText={setRegisterPhone}
+                          placeholder="Ví dụ: 0912345678"
+                          placeholderTextColor="#64748B"
+                          keyboardType="phone-pad"
+                          onFocus={() => setFocusedInput('registerPhone')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => setMode('registerPhone')}
-            >
-              <Text style={styles.backText}>Quay lại</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleRegisterSendOtp}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>GỬI MÃ OTP XÁC THỰC</Text>
+                            <Ionicons name="paper-plane-outline" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
 
-        {/* Register Details Form */}
-        {mode === 'registerDetails' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Họ và tên</Text>
-              <TextInput
-                style={styles.input}
-                value={registerFullName}
-                onChangeText={setRegisterFullName}
-                placeholder="Nhập họ và tên"
-              />
-            </View>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => {
+                        resetAuthStates();
+                        setMode('login');
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                      <Text style={styles.backText}>Quay lại đăng nhập</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email (tùy chọn)</Text>
-              <TextInput
-                style={styles.input}
-                value={registerEmail}
-                onChangeText={setRegisterEmail}
-                placeholder="Nhập email"
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
+                {/* 3. REGISTER OTP FORM */}
+                {mode === 'registerOtp' && (
+                  <View style={styles.form}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>MÃ XÁC THỰC OTP</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerOtp' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="key-outline"
+                          size={18}
+                          color={focusedInput === 'registerOtp' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerOtp}
+                          onChangeText={setRegisterOtp}
+                          placeholder="Nhập mã 6 số OTP"
+                          placeholderTextColor="#64748B"
+                          keyboardType="number-pad"
+                          onFocus={() => setFocusedInput('registerOtp')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Tên đăng nhập</Text>
-              <TextInput
-                style={styles.input}
-                value={registerUsername}
-                onChangeText={setRegisterUsername}
-                placeholder="Nhập tên đăng nhập"
-                autoCapitalize="none"
-              />
-            </View>
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleRegisterVerifyOtp}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>XÁC MINH OTP</Text>
+                            <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Mật khẩu</Text>
-              <TextInput
-                style={styles.input}
-                value={registerPassword}
-                onChangeText={setRegisterPassword}
-                placeholder="Nhập mật khẩu"
-                secureTextEntry
-              />
-            </View>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => setMode('registerPhone')}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                      <Text style={styles.backText}>Nhập lại số điện thoại</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleRegister}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang xử lý...' : 'Hoàn thành đăng ký'}
-              </Text>
-            </TouchableOpacity>
+                {/* 4. REGISTER DETAILS FORM */}
+                {mode === 'registerDetails' && (
+                  <View style={styles.form}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>HỌ VÀ TÊN</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerFullName' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="person-circle-outline"
+                          size={18}
+                          color={focusedInput === 'registerFullName' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerFullName}
+                          onChangeText={setRegisterFullName}
+                          placeholder="Nguyễn Văn A"
+                          placeholderTextColor="#64748B"
+                          onFocus={() => setFocusedInput('registerFullName')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => setMode('registerOtp')}
-            >
-              <Text style={styles.backText}>Quay lại</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>EMAIL (TÙY CHỌN)</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerEmail' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="mail-outline"
+                          size={18}
+                          color={focusedInput === 'registerEmail' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerEmail}
+                          onChangeText={setRegisterEmail}
+                          placeholder="example@gmail.com"
+                          placeholderTextColor="#64748B"
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          onFocus={() => setFocusedInput('registerEmail')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-        {/* Forgot Password Form */}
-        {mode === 'forgotPassword' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Số điện thoại</Text>
-              <TextInput
-                style={styles.input}
-                value={forgotPhone}
-                onChangeText={setForgotPhone}
-                placeholder="Nhập số điện thoại đã đăng ký"
-                keyboardType="phone-pad"
-              />
-            </View>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>TÊN ĐĂNG NHẬP</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerUsername' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="at-outline"
+                          size={18}
+                          color={focusedInput === 'registerUsername' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerUsername}
+                          onChangeText={setRegisterUsername}
+                          placeholder="username123"
+                          placeholderTextColor="#64748B"
+                          autoCapitalize="none"
+                          onFocus={() => setFocusedInput('registerUsername')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleForgotPassword}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang xử lý...' : 'Gửi mã xác minh'}
-              </Text>
-            </TouchableOpacity>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>MẬT KHẨU</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'registerPassword' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={18}
+                          color={focusedInput === 'registerPassword' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={registerPassword}
+                          onChangeText={setRegisterPassword}
+                          placeholder="Tối thiểu 6 ký tự"
+                          placeholderTextColor="#64748B"
+                          secureTextEntry={!showPassword}
+                          autoCapitalize="none"
+                          onFocus={() => setFocusedInput('registerPassword')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons
+                            name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={showPassword ? '#10B981' : '#64748B'}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => {
-                resetAuthStates();
-                setMode('login');
-              }}
-            >
-              <Text style={styles.backText}>Quay lại đăng nhập</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleRegister}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>HOÀN TẤT ĐĂNG KÝ</Text>
+                            <Ionicons name="checkmark-done" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
 
-        {/* Reset Password Form */}
-        {mode === 'resetPassword' && (
-          <View style={styles.form}>
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Mã OTP</Text>
-              <TextInput
-                style={styles.input}
-                value={forgotOtp}
-                onChangeText={setForgotOtp}
-                placeholder="Nhập mã OTP"
-                keyboardType="number-pad"
-              />
-            </View>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => setMode('registerOtp')}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                      <Text style={styles.backText}>Quay lại</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Mật khẩu mới</Text>
-              <TextInput
-                style={styles.input}
-                value={newPassword}
-                onChangeText={setNewPassword}
-                placeholder="Nhập mật khẩu mới"
-                secureTextEntry
-              />
-            </View>
+                {/* 5. FORGOT PASSWORD FORM */}
+                {mode === 'forgotPassword' && (
+                  <View style={styles.form}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>SỐ ĐIỆN THOẠI HOẶC EMAIL</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'forgotPhone' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="call-outline"
+                          size={18}
+                          color={focusedInput === 'forgotPhone' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={forgotPhone}
+                          onChangeText={setForgotPhone}
+                          placeholder="Số điện thoại đã đăng ký"
+                          placeholderTextColor="#64748B"
+                          keyboardType="phone-pad"
+                          onFocus={() => setFocusedInput('forgotPhone')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
 
-            <TouchableOpacity
-              style={styles.button}
-              onPress={handleResetPassword}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? 'Đang xử lý...' : 'Đặt lại mật khẩu'}
-              </Text>
-            </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleForgotPassword}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>GỬI MÃ XÁC THỰC</Text>
+                            <Ionicons name="send-outline" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => setMode('forgotPassword')}
-            >
-              <Text style={styles.backText}>Quay lại</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </ScrollView>
-    </SafeAreaViewContext>
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => {
+                        resetAuthStates();
+                        setMode('login');
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                      <Text style={styles.backText}>Quay lại đăng nhập</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* 6. RESET PASSWORD FORM */}
+                {mode === 'resetPassword' && (
+                  <View style={styles.form}>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>MÃ OTP XÁC NHẬN</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'forgotOtp' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="key-outline"
+                          size={18}
+                          color={focusedInput === 'forgotOtp' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={forgotOtp}
+                          onChangeText={setForgotOtp}
+                          placeholder="Nhập mã OTP"
+                          placeholderTextColor="#64748B"
+                          keyboardType="number-pad"
+                          onFocus={() => setFocusedInput('forgotOtp')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.label}>MẬT KHẨU MỚI</Text>
+                      <View
+                        style={[
+                          styles.inputContainer,
+                          focusedInput === 'newPassword' && styles.inputContainerFocused,
+                        ]}
+                      >
+                        <Ionicons
+                          name="shield-checkmark-outline"
+                          size={18}
+                          color={focusedInput === 'newPassword' ? '#10B981' : '#64748B'}
+                          style={styles.inputIcon}
+                        />
+                        <TextInput
+                          style={styles.input}
+                          value={newPassword}
+                          onChangeText={setNewPassword}
+                          placeholder="Nhập mật khẩu mới"
+                          placeholderTextColor="#64748B"
+                          secureTextEntry={!showNewPassword}
+                          autoCapitalize="none"
+                          onFocus={() => setFocusedInput('newPassword')}
+                          onBlur={() => setFocusedInput(null)}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowNewPassword(!showNewPassword)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        >
+                          <Ionicons
+                            name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={showNewPassword ? '#10B981' : '#64748B'}
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                      onPress={handleResetPassword}
+                      disabled={loading}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={['#10B981', '#059669']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.buttonGradient}
+                      >
+                        {loading ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <>
+                            <Text style={styles.primaryButtonText}>ĐẶT LẠI MẬT KHẨU</Text>
+                            <Ionicons name="lock-open-outline" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.backButton}
+                      onPress={() => setMode('forgotPassword')}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="arrow-back" size={16} color="#94A3B8" style={{ marginRight: 6 }} />
+                      <Text style={styles.backText}>Quay lại</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#050811',
+  },
+  gradient: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  keyboardAvoid: {
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 40,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 40,
+    justifyContent: 'center',
   },
   header: {
-    marginBottom: 40,
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  logoBadgeContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  logoBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  onlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 10,
+    gap: 6,
+  },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  onlineText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   appName: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 8,
+    fontSize: 26,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+    marginBottom: 6,
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
-    color: '#6b7280',
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
+    paddingHorizontal: 16,
+  },
+  formCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 8,
   },
   form: {
-    gap: 20,
+    gap: 16,
   },
   inputGroup: {
-    gap: 8,
+    gap: 6,
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(11, 19, 38, 0.85)',
+    borderWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 52,
+  },
+  inputContainerFocused: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  inputIcon: {
+    marginRight: 10,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#f9fafb',
+    flex: 1,
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '500',
+    height: '100%',
   },
   forgotLink: {
     alignSelf: 'flex-end',
-    marginBottom: 8,
+    marginTop: -4,
+    marginBottom: 4,
   },
   forgotText: {
-    fontSize: 14,
-    color: '#3b82f6',
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#38BDF8',
+    fontWeight: '600',
   },
-  button: {
-    backgroundColor: '#10b981',
-    paddingVertical: 14,
-    borderRadius: 12,
+  primaryButton: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 6,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 5,
+  },
+  buttonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
   },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '700',
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.8,
   },
   backButton: {
-    marginTop: 12,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginTop: 4,
   },
   backText: {
-    fontSize: 14,
-    color: '#6b7280',
-    fontWeight: '500',
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     justifyContent: 'center',
-    marginTop: 24,
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
   footerText: {
-    fontSize: 14,
-    color: '#6b7280',
+    fontSize: 13,
+    color: '#64748B',
   },
   linkText: {
-    fontSize: 14,
-    color: '#10b981',
-    fontWeight: '600',
+    fontSize: 13,
+    color: '#10B981',
+    fontWeight: '700',
   },
 });
