@@ -1,12 +1,13 @@
 import { api } from '@/services/api';
 import { extractUserRoles, mapApiRoleToLocal } from '@/services/config';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -37,6 +38,19 @@ export default function AuthScreen() {
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+
+  // Refs for reliable tap-to-focus
+  const loginUsernameRef = useRef<TextInput>(null);
+  const loginPasswordRef = useRef<TextInput>(null);
+  const registerPhoneRef = useRef<TextInput>(null);
+  const registerOtpRef = useRef<TextInput>(null);
+  const registerFullNameRef = useRef<TextInput>(null);
+  const registerEmailRef = useRef<TextInput>(null);
+  const registerUsernameRef = useRef<TextInput>(null);
+  const registerPasswordRef = useRef<TextInput>(null);
+  const forgotPhoneRef = useRef<TextInput>(null);
+  const forgotOtpRef = useRef<TextInput>(null);
+  const newPasswordRef = useRef<TextInput>(null);
 
   // Login fields
   const [loginUsername, setLoginUsername] = useState('');
@@ -280,7 +294,7 @@ export default function AuthScreen() {
   const getSubtitle = () => {
     switch (mode) {
       case 'login':
-        return 'Đăng nhập hệ thống điều phối & cấp cứu';
+        return '';
       case 'registerPhone':
         return 'Nhập số điện thoại để tạo tài khoản mới';
       case 'registerOtp':
@@ -293,6 +307,8 @@ export default function AuthScreen() {
         return 'Thiết lập mật khẩu bảo mật mới';
     }
   };
+
+  const subtitleText = getSubtitle();
 
   return (
     <View style={styles.container}>
@@ -313,14 +329,14 @@ export default function AuthScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* BRANDING HEADER */}
+              {/* BRANDING HEADER - COMPACT & PUSHED UP */}
               <View style={styles.header}>
                 <View style={styles.logoBadgeContainer}>
                   <LinearGradient
                     colors={['rgba(16, 185, 129, 0.25)', 'rgba(6, 95, 70, 0.4)']}
                     style={styles.logoBadge}
                   >
-                    <MaterialCommunityIcons name="ambulance" size={38} color="#10B981" />
+                    <MaterialCommunityIcons name="ambulance" size={26} color="#10B981" />
                   </LinearGradient>
                   <View style={styles.onlinePill}>
                     <View style={styles.onlineDot} />
@@ -329,7 +345,9 @@ export default function AuthScreen() {
                 </View>
 
                 <Text style={styles.appName}>SEMD CẤP CỨU</Text>
-                <Text style={styles.subtitle}>{getSubtitle()}</Text>
+                {subtitleText ? (
+                  <Text style={styles.subtitle}>{subtitleText}</Text>
+                ) : null}
               </View>
 
               {/* MAIN AUTH CARD */}
@@ -340,7 +358,8 @@ export default function AuthScreen() {
                     {/* Username Input */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>TÀI KHOẢN ĐĂNG NHẬP</Text>
-                      <View
+                      <Pressable
+                        onPress={() => loginUsernameRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'loginUsername' && styles.inputContainerFocused,
@@ -353,6 +372,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={loginUsernameRef}
                           style={styles.input}
                           value={loginUsername}
                           onChangeText={setLoginUsername}
@@ -371,13 +391,14 @@ export default function AuthScreen() {
                             <Ionicons name="close-circle" size={18} color="#64748B" />
                           </TouchableOpacity>
                         )}
-                      </View>
+                      </Pressable>
                     </View>
 
                     {/* Password Input */}
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>MẬT KHẨU</Text>
-                      <View
+                      <Pressable
+                        onPress={() => loginPasswordRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'loginPassword' && styles.inputContainerFocused,
@@ -390,6 +411,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={loginPasswordRef}
                           style={styles.input}
                           value={loginPassword}
                           onChangeText={setLoginPassword}
@@ -411,7 +433,7 @@ export default function AuthScreen() {
                             color={showPassword ? '#10B981' : '#64748B'}
                           />
                         </TouchableOpacity>
-                      </View>
+                      </Pressable>
                     </View>
 
                     {/* Forgot Password Link */}
@@ -468,7 +490,8 @@ export default function AuthScreen() {
                   <View style={styles.form}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>SỐ ĐIỆN THOẠI</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerPhoneRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerPhone' && styles.inputContainerFocused,
@@ -481,6 +504,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerPhoneRef}
                           style={styles.input}
                           value={registerPhone}
                           onChangeText={setRegisterPhone}
@@ -490,7 +514,7 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('registerPhone')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <TouchableOpacity
@@ -535,7 +559,8 @@ export default function AuthScreen() {
                   <View style={styles.form}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>MÃ XÁC THỰC OTP</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerOtpRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerOtp' && styles.inputContainerFocused,
@@ -548,6 +573,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerOtpRef}
                           style={styles.input}
                           value={registerOtp}
                           onChangeText={setRegisterOtp}
@@ -557,7 +583,7 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('registerOtp')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <TouchableOpacity
@@ -599,7 +625,8 @@ export default function AuthScreen() {
                   <View style={styles.form}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>HỌ VÀ TÊN</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerFullNameRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerFullName' && styles.inputContainerFocused,
@@ -612,6 +639,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerFullNameRef}
                           style={styles.input}
                           value={registerFullName}
                           onChangeText={setRegisterFullName}
@@ -620,12 +648,13 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('registerFullName')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>EMAIL (TÙY CHỌN)</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerEmailRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerEmail' && styles.inputContainerFocused,
@@ -638,6 +667,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerEmailRef}
                           style={styles.input}
                           value={registerEmail}
                           onChangeText={setRegisterEmail}
@@ -648,12 +678,13 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('registerEmail')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>TÊN ĐĂNG NHẬP</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerUsernameRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerUsername' && styles.inputContainerFocused,
@@ -666,6 +697,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerUsernameRef}
                           style={styles.input}
                           value={registerUsername}
                           onChangeText={setRegisterUsername}
@@ -675,12 +707,13 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('registerUsername')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>MẬT KHẨU</Text>
-                      <View
+                      <Pressable
+                        onPress={() => registerPasswordRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'registerPassword' && styles.inputContainerFocused,
@@ -693,6 +726,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={registerPasswordRef}
                           style={styles.input}
                           value={registerPassword}
                           onChangeText={setRegisterPassword}
@@ -713,7 +747,7 @@ export default function AuthScreen() {
                             color={showPassword ? '#10B981' : '#64748B'}
                           />
                         </TouchableOpacity>
-                      </View>
+                      </Pressable>
                     </View>
 
                     <TouchableOpacity
@@ -755,7 +789,8 @@ export default function AuthScreen() {
                   <View style={styles.form}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>SỐ ĐIỆN THOẠI HOẶC EMAIL</Text>
-                      <View
+                      <Pressable
+                        onPress={() => forgotPhoneRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'forgotPhone' && styles.inputContainerFocused,
@@ -768,6 +803,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={forgotPhoneRef}
                           style={styles.input}
                           value={forgotPhone}
                           onChangeText={setForgotPhone}
@@ -777,7 +813,7 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('forgotPhone')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <TouchableOpacity
@@ -822,7 +858,8 @@ export default function AuthScreen() {
                   <View style={styles.form}>
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>MÃ OTP XÁC NHẬN</Text>
-                      <View
+                      <Pressable
+                        onPress={() => forgotOtpRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'forgotOtp' && styles.inputContainerFocused,
@@ -835,6 +872,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={forgotOtpRef}
                           style={styles.input}
                           value={forgotOtp}
                           onChangeText={setForgotOtp}
@@ -844,12 +882,13 @@ export default function AuthScreen() {
                           onFocus={() => setFocusedInput('forgotOtp')}
                           onBlur={() => setFocusedInput(null)}
                         />
-                      </View>
+                      </Pressable>
                     </View>
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.label}>MẬT KHẨU MỚI</Text>
-                      <View
+                      <Pressable
+                        onPress={() => newPasswordRef.current?.focus()}
                         style={[
                           styles.inputContainer,
                           focusedInput === 'newPassword' && styles.inputContainerFocused,
@@ -862,6 +901,7 @@ export default function AuthScreen() {
                           style={styles.inputIcon}
                         />
                         <TextInput
+                          ref={newPasswordRef}
                           style={styles.input}
                           value={newPassword}
                           onChangeText={setNewPassword}
@@ -882,7 +922,7 @@ export default function AuthScreen() {
                             color={showNewPassword ? '#10B981' : '#64748B'}
                           />
                         </TouchableOpacity>
-                      </View>
+                      </Pressable>
                     </View>
 
                     <TouchableOpacity
@@ -944,84 +984,85 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 40,
-    justifyContent: 'center',
+    paddingTop: 12,
+    paddingBottom: 24,
+    justifyContent: 'flex-start',
   },
   header: {
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 14,
   },
   logoBadgeContainer: {
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 6,
   },
   logoBadge: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
+    borderWidth: 1.2,
     borderColor: 'rgba(16, 185, 129, 0.4)',
     shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   onlinePill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
     borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginTop: 10,
-    gap: 6,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 6,
+    gap: 5,
   },
   onlineDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
     backgroundColor: '#10B981',
   },
   onlineText: {
     color: '#34D399',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
   appName: {
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: '900',
     color: '#FFFFFF',
-    letterSpacing: 1,
-    marginBottom: 6,
+    letterSpacing: 0.8,
     textAlign: 'center',
+    marginTop: 4,
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#94A3B8',
     textAlign: 'center',
     paddingHorizontal: 16,
+    marginTop: 4,
   },
   formCard: {
     backgroundColor: 'rgba(15, 23, 42, 0.65)',
-    borderRadius: 24,
-    padding: 22,
+    borderRadius: 20,
+    padding: 20,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
   },
   form: {
-    gap: 16,
+    gap: 14,
   },
   inputGroup: {
     gap: 6,
@@ -1040,8 +1081,8 @@ const styles = StyleSheet.create({
     borderWidth: 1.2,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 14,
-    paddingHorizontal: 14,
-    height: 52,
+    paddingHorizontal: 12,
+    minHeight: 50,
   },
   inputContainerFocused: {
     borderColor: '#10B981',
@@ -1053,19 +1094,20 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   inputIcon: {
-    marginRight: 10,
+    marginRight: 8,
   },
   input: {
     flex: 1,
     color: '#F8FAFC',
     fontSize: 15,
     fontWeight: '500',
-    height: '100%',
+    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
+    paddingHorizontal: 4,
   },
   forgotLink: {
     alignSelf: 'flex-end',
     marginTop: -4,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   forgotText: {
     fontSize: 13,
@@ -1075,7 +1117,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     borderRadius: 14,
     overflow: 'hidden',
-    marginTop: 6,
+    marginTop: 4,
     shadowColor: '#10B981',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
@@ -1086,7 +1128,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    paddingVertical: 13,
     paddingHorizontal: 18,
   },
   buttonDisabled: {
@@ -1115,7 +1157,7 @@ const styles = StyleSheet.create({
     gap: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 6,
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.06)',
