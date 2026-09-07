@@ -276,7 +276,11 @@ const LEAFLET_HTML = `
       if (!hasCenteredInitially) {
         if (allPoints.length > 1) {
           var bounds = L.latLngBounds(allPoints);
-          map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+          map.fitBounds(bounds, {
+            paddingTopLeft: [40, 80],
+            paddingBottomRight: [40, 240],
+            maxZoom: 16
+          });
           hasCenteredInitially = true;
         } else if (allPoints.length === 1) {
           map.setView(allPoints[0], 15);

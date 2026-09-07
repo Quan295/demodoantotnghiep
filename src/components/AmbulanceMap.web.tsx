@@ -58,7 +58,12 @@ function AutoBounds({ points }: { points: [number, number][] }) {
     if (points.length === 1) {
       map.setView(points[0], 15, { animate: true });
     } else {
-      map.fitBounds(bounds.pad(0.4), { animate: true, maxZoom: 16 });
+      map.fitBounds(bounds, {
+        paddingTopLeft: [40, 80],
+        paddingBottomRight: [40, 240],
+        animate: true,
+        maxZoom: 16,
+      });
     }
   }, [points, map]);
   return null;

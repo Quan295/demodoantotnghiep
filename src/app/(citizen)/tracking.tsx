@@ -10,6 +10,7 @@ import {
   View,
   Alert,
   ActivityIndicator,
+  PanResponder,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -53,6 +54,73 @@ export default function TrackingScreen() {
 
   const slideAnim = useRef(new Animated.Value(400)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Trạng thái & Animation kéo xuống / vuốt lên thu gọn thẻ thông tin
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [detailsHeight, setDetailsHeight] = useState(330);
+  const isCollapsedRef = useRef(false);
+  isCollapsedRef.current = isCollapsed;
+  const detailsHeightRef = useRef(330);
+  detailsHeightRef.current = detailsHeight;
+
+  const panY = useRef(new Animated.Value(0)).current;
+
+  const collapseSheet = useCallback(() => {
+    setIsCollapsed(true);
+    Animated.spring(panY, {
+      toValue: detailsHeightRef.current,
+      useNativeDriver: true,
+      tension: 55,
+      friction: 9,
+    }).start();
+  }, [panY]);
+
+  const expandSheet = useCallback(() => {
+    setIsCollapsed(false);
+    Animated.spring(panY, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 55,
+      friction: 9,
+    }).start();
+  }, [panY]);
+
+  const toggleSheet = useCallback(() => {
+    if (isCollapsedRef.current) {
+      expandSheet();
+    } else {
+      collapseSheet();
+    }
+  }, [collapseSheet, expandSheet]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dy) > 6;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const base = isCollapsedRef.current ? detailsHeightRef.current : 0;
+        const targetY = base + gestureState.dy;
+        if (targetY >= -10 && targetY <= detailsHeightRef.current + 30) {
+          panY.setValue(targetY);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 40 || gestureState.vy > 0.35) {
+          collapseSheet();
+        } else if (gestureState.dy < -40 || gestureState.vy < -0.35) {
+          expandSheet();
+        } else {
+          if (isCollapsedRef.current) {
+            collapseSheet();
+          } else {
+            expandSheet();
+          }
+        }
+      },
+    })
+  ).current;
 
   // Lấy GPS dự phòng từ chính thiết bị nếu cuộc gọi cũ không lưu GPS
   useEffect(() => {
@@ -358,22 +426,70 @@ export default function TrackingScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Quick Floating Map Toggle Button */}
+      <TouchableOpacity
+        style={[
+          styles.floatingMapToggleBtn,
+          { bottom: isCollapsed ? 115 : 420 },
+        ]}
+        onPress={toggleSheet}
+        activeOpacity={0.85}
+      >
+        <Ionicons
+          name={isCollapsed ? 'chevron-up-circle' : 'map'}
+          size={16}
+          color="#34D399"
+        />
+        <Text style={styles.floatingMapToggleText}>
+          {isCollapsed ? 'Mở chi tiết' : 'Xem toàn bản đồ'}
+        </Text>
+      </TouchableOpacity>
+
       {/* Bottom Sheet Modal */}
       <Animated.View
         style={[
           styles.bottomSheet,
           {
-            transform: [{ translateY: slideAnim }],
+            transform: [{ translateY: Animated.add(slideAnim, panY) }],
             paddingBottom: Platform.OS === 'ios' ? 36 : 20,
           },
         ]}
       >
-        <View style={styles.sheetHandle} />
+        {/* Thanh gạt kéo xuống ẩn / vuốt lên hiện */}
+        <TouchableOpacity
+          onPress={toggleSheet}
+          activeOpacity={0.8}
+          style={styles.sheetHandleTouchable}
+          {...panResponder.panHandlers}
+        >
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHandleHintRow}>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up-circle' : 'chevron-down-circle'}
+              size={13}
+              color="#34D399"
+            />
+            <Text style={styles.sheetHandleHintText}>
+              {isCollapsed ? 'Kéo lên hoặc chạm để xem chi tiết tiến độ' : 'Kéo xuống hoặc chạm để xem toàn bộ bản đồ xe'}
+            </Text>
+          </View>
+        </TouchableOpacity>
 
-        {/* ETA & Distance Row */}
-        <View style={styles.sheetHeader}>
-          <View style={styles.etaBlock}>
-            <Text style={styles.etaLabel}>TRẠNG THÁI TIẾP CẬN</Text>
+        {/* ETA & Distance Row (Luôn hiển thị ở chế độ thu gọn) */}
+        <View style={styles.sheetHeader} {...panResponder.panHandlers}>
+          <TouchableOpacity
+            style={styles.etaBlock}
+            onPress={toggleSheet}
+            activeOpacity={0.85}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.etaLabel}>TRẠNG THÁI TIẾP CẬN</Text>
+              <View style={[styles.miniStatusBadge, isCollapsed && styles.miniStatusBadgeCollapsed]}>
+                <Text style={styles.miniStatusBadgeText}>
+                  {isCollapsed ? 'Thu gọn' : 'Chi tiết'}
+                </Text>
+              </View>
+            </View>
             <Text style={styles.etaValue}>
               {getEtaTitle()}
             </Text>
@@ -386,125 +502,136 @@ export default function TrackingScreen() {
                 <Text style={styles.progressPct}>{progress.toFixed(0)}%</Text>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
 
           <TouchableOpacity onPress={handleCallDriver} style={styles.callDriverFab} activeOpacity={0.8}>
             <Ionicons name="call" size={22} color="#FFF" />
           </TouchableOpacity>
         </View>
 
-        {/* Step-by-Step Progress Timeline */}
-        <View style={styles.timeline}>
-          <TimelineItem
-            title="1. Đã tiếp nhận yêu cầu cấp cứu"
-            time={callDetail?.createdAt ? new Date(callDetail.createdAt).toLocaleTimeString('vi-VN') : 'Đã ghi nhận'}
-            status={status === 'PENDING' ? 'active' : 'done'}
-            color={getStatusColor('STEP_1')}
-          />
-          <TimelineItem
-            title="2. Xe cứu thương đang di chuyển tới"
-            time={status === 'EN_ROUTE' || status === 'DISPATCHED' ? `Đang trên đường đến` : ''}
-            status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : ['ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
-            color={getStatusColor('STEP_2')}
-          />
-          <TimelineItem
-            title="3. Đã tiếp cận hiện trường"
-            time={status === 'ARRIVED_SCENE' ? 'Đang sơ cấp cứu' : ''}
-            status={status === 'ARRIVED_SCENE' ? 'active' : ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
-            color={getStatusColor('STEP_3')}
-          />
-          <TimelineItem
-            title="4. Vận chuyển đến bệnh viện tiếp nhận"
-            time={status === 'TRANSPORTING' ? 'Đang di chuyển viện' : status === 'ARRIVED_HOSPITAL' ? 'Đã bàn giao viện' : status === 'COMPLETED' ? 'Đã hoàn tất' : ''}
-            status={status === 'TRANSPORTING' || status === 'ARRIVED_HOSPITAL' ? 'active' : status === 'COMPLETED' ? 'done' : 'pending'}
-            color={getStatusColor('STEP_4')}
-            isLast
-          />
-        </View>
-
-        {/* Assigned Ambulance & Driver Card */}
-        <View style={styles.driverInfoCard}>
-          <View style={styles.driverAvatarCircle}>
-            <MaterialCommunityIcons name="ambulance" size={22} color="#10B981" />
+        {/* Phần nội dung chi tiết thu gọn / mở rộng */}
+        <View
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 120 && Math.abs(h - detailsHeight) > 10) {
+              setDetailsHeight(Math.round(h) + 24);
+            }
+          }}
+          style={styles.collapsibleContent}
+        >
+          {/* Step-by-Step Progress Timeline */}
+          <View style={styles.timeline}>
+            <TimelineItem
+              title="1. Đã tiếp nhận yêu cầu cấp cứu"
+              time={callDetail?.createdAt ? new Date(callDetail.createdAt).toLocaleTimeString('vi-VN') : 'Đã ghi nhận'}
+              status={status === 'PENDING' ? 'active' : 'done'}
+              color={getStatusColor('STEP_1')}
+            />
+            <TimelineItem
+              title="2. Xe cứu thương đang di chuyển tới"
+              time={status === 'EN_ROUTE' || status === 'DISPATCHED' ? `Đang trên đường đến` : ''}
+              status={status === 'EN_ROUTE' || status === 'DISPATCHED' ? 'active' : ['ARRIVED_SCENE', 'TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
+              color={getStatusColor('STEP_2')}
+            />
+            <TimelineItem
+              title="3. Đã tiếp cận hiện trường"
+              time={status === 'ARRIVED_SCENE' ? 'Đang sơ cấp cứu' : ''}
+              status={status === 'ARRIVED_SCENE' ? 'active' : ['TRANSPORTING', 'ARRIVED_HOSPITAL', 'COMPLETED'].includes(status) ? 'done' : 'pending'}
+              color={getStatusColor('STEP_3')}
+            />
+            <TimelineItem
+              title="4. Vận chuyển đến bệnh viện tiếp nhận"
+              time={status === 'TRANSPORTING' ? 'Đang di chuyển viện' : status === 'ARRIVED_HOSPITAL' ? 'Đã bàn giao viện' : status === 'COMPLETED' ? 'Đã hoàn tất' : ''}
+              status={status === 'TRANSPORTING' || status === 'ARRIVED_HOSPITAL' ? 'active' : status === 'COMPLETED' ? 'done' : 'pending'}
+              color={getStatusColor('STEP_4')}
+              isLast
+            />
           </View>
 
-          <View style={styles.driverDetails}>
-            <View style={styles.driverNameRow}>
-              <Text style={styles.driverName}>{driverName}</Text>
-              <View style={styles.plateTag}>
-                <Text style={styles.plateTagText}>{vehicleBadge}</Text>
-              </View>
+          {/* Assigned Ambulance & Driver Card */}
+          <View style={styles.driverInfoCard}>
+            <View style={styles.driverAvatarCircle}>
+              <MaterialCommunityIcons name="ambulance" size={22} color="#10B981" />
             </View>
-            <Text style={styles.hospitalText} numberOfLines={1}>
-              <Ionicons name="shield-checkmark-outline" size={11} color="#94A3B8" /> Đội cấp cứu khẩn cấp 115
-            </Text>
+
+            <View style={styles.driverDetails}>
+              <View style={styles.driverNameRow}>
+                <Text style={styles.driverName}>{driverName}</Text>
+                <View style={styles.plateTag}>
+                  <Text style={styles.plateTagText}>{vehicleBadge}</Text>
+                </View>
+              </View>
+              <Text style={styles.hospitalText} numberOfLines={1}>
+                <Ionicons name="shield-checkmark-outline" size={11} color="#94A3B8" /> Đội cấp cứu khẩn cấp 115
+              </Text>
+            </View>
+
+            <TouchableOpacity style={styles.contactDriverBtn} onPress={handleCallDriver}>
+              <Ionicons name="call-outline" size={16} color="#34D399" />
+              <Text style={styles.contactDriverText}>GỌI XE</Text>
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity style={styles.contactDriverBtn} onPress={handleCallDriver}>
-            <Ionicons name="call-outline" size={16} color="#34D399" />
-            <Text style={styles.contactDriverText}>GỌI XE</Text>
+          {/* Invoice & Payment Button */}
+          <TouchableOpacity
+            style={[
+              styles.invoicePaymentBtn,
+              status === 'COMPLETED' && styles.invoicePaymentBtnCompleted,
+            ]}
+            onPress={async () => {
+              if (status === 'COMPLETED') {
+                setShowInvoiceModal(true);
+                return;
+              }
+
+              // Thử kiểm tra API thanh toán xem BE đã xuất hóa đơn cho ca này chưa
+              if (callId) {
+                try {
+                  const payment = await api.getReporterPaymentByCallId(callId);
+                  if (payment && payment.paymentId) {
+                    setShowInvoiceModal(true);
+                    return;
+                  }
+                } catch {
+                  // Silent
+                }
+              }
+
+              Alert.alert(
+                'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
+                'Yêu cầu cấp cứu này đang chờ điều phối viên duyệt hoặc xe cấp cứu đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí chính thức sẽ xuất hiện ngay sau khi hoàn tất ca cấp cứu.'
+              );
+            }}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons
+              name="receipt-text-check"
+              size={18}
+              color={status === 'COMPLETED' ? '#022C22' : '#38BDF8'}
+              style={{ marginRight: 8 }}
+            />
+            <Text
+              style={[
+                styles.invoicePaymentBtnText,
+                status === 'COMPLETED' && styles.invoicePaymentBtnTextCompleted,
+              ]}
+            >
+              {status === 'COMPLETED'
+                ? 'XEM HÓA ĐƠN & CHI PHÍ CẤP CỨU'
+                : 'XEM DỰ TÍNH CHI PHÍ CẤP CỨU'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.allPaymentsLinkBtn}
+            onPress={() => router.push('/(citizen)/payments' as any)}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="history" size={13} color="#94A3B8" />
+            <Text style={styles.allPaymentsLinkText}>Lịch sử tất cả hóa đơn viện phí</Text>
+            <Ionicons name="chevron-forward" size={13} color="#64748B" />
           </TouchableOpacity>
         </View>
-
-        {/* Invoice & Payment Button */}
-        <TouchableOpacity
-          style={[
-            styles.invoicePaymentBtn,
-            status === 'COMPLETED' && styles.invoicePaymentBtnCompleted,
-          ]}
-          onPress={async () => {
-            if (status === 'COMPLETED') {
-              setShowInvoiceModal(true);
-              return;
-            }
-
-            // Thử kiểm tra API thanh toán xem BE đã xuất hóa đơn cho ca này chưa
-            if (callId) {
-              try {
-                const payment = await api.getReporterPaymentByCallId(callId);
-                if (payment && payment.paymentId) {
-                  setShowInvoiceModal(true);
-                  return;
-                }
-              } catch {
-                // Silent
-              }
-            }
-
-            Alert.alert(
-              'Yêu Cầu Đang Chờ Duyệt & Xử Lý',
-              'Yêu cầu cấp cứu này đang chờ điều phối viên duyệt hoặc xe cấp cứu đang di chuyển, chưa thể thanh toán vào lúc này.\n\nHóa đơn viện phí chính thức sẽ xuất hiện ngay sau khi hoàn tất ca cấp cứu.'
-            );
-          }}
-          activeOpacity={0.85}
-        >
-          <MaterialCommunityIcons
-            name="receipt-text-check"
-            size={18}
-            color={status === 'COMPLETED' ? '#022C22' : '#38BDF8'}
-            style={{ marginRight: 8 }}
-          />
-          <Text
-            style={[
-              styles.invoicePaymentBtnText,
-              status === 'COMPLETED' && styles.invoicePaymentBtnTextCompleted,
-            ]}
-          >
-            {status === 'COMPLETED'
-              ? 'XEM HÓA ĐƠN & CHI PHÍ CẤP CỨU'
-              : 'XEM DỰ TÍNH CHI PHÍ CẤP CỨU'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.allPaymentsLinkBtn}
-          onPress={() => router.push('/(citizen)/payments' as any)}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="history" size={13} color="#94A3B8" />
-          <Text style={styles.allPaymentsLinkText}>Lịch sử tất cả hóa đơn viện phí</Text>
-          <Ionicons name="chevron-forward" size={13} color="#64748B" />
-        </TouchableOpacity>
       </Animated.View>
 
       {/* Payment Invoice Modal */}
@@ -620,6 +747,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  floatingMapToggleBtn: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 998,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.3)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  floatingMapToggleText: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '800',
+  },
   bottomSheet: {
     position: 'absolute',
     bottom: 0,
@@ -631,7 +782,12 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    gap: 12,
+    gap: 10,
+  },
+  sheetHandleTouchable: {
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sheetHandle: {
     width: 36,
@@ -640,6 +796,37 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     alignSelf: 'center',
     marginBottom: 4,
+  },
+  sheetHandleHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  sheetHandleHintText: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  miniStatusBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+    borderWidth: 0.8,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  miniStatusBadgeCollapsed: {
+    backgroundColor: 'rgba(56, 189, 248, 0.15)',
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+  },
+  miniStatusBadgeText: {
+    color: '#34D399',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  collapsibleContent: {
+    gap: 12,
   },
   sheetHeader: {
     flexDirection: 'row',
