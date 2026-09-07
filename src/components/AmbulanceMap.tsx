@@ -121,45 +121,78 @@ const LEAFLET_HTML = `
     var targetCircle = null;
     var routePolyline = null;
     var hasCenteredInitially = false;
+    var ambulanceIcon = null;
+    var victimIcon = null;
+    var hospitalIcon = null;
 
-    function initMap() {
-      map = L.map('map', {
-        center: [21.0285, 105.8542],
-        zoom: 15,
-        zoomControl: false,
-        attributionControl: false
-      });
-
-      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19
-      }).addTo(map);
-
-      window.mapReady = true;
+    function initIcons() {
+      if (typeof L === 'undefined') return;
+      if (!ambulanceIcon) {
+        ambulanceIcon = L.divIcon({
+          className: '',
+          html: '<div class="ambulance-badge">🚑</div>',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
+        });
+      }
+      if (!victimIcon) {
+        victimIcon = L.divIcon({
+          className: '',
+          html: '<div class="victim-marker-wrap"><div class="victim-ping"></div><div class="victim-core"></div></div>',
+          iconSize: [44, 44],
+          iconAnchor: [22, 22]
+        });
+      }
+      if (!hospitalIcon) {
+        hospitalIcon = L.divIcon({
+          className: '',
+          html: '<div class="hospital-badge">🏥</div>',
+          iconSize: [36, 36],
+          iconAnchor: [18, 18]
+        });
+      }
     }
 
-    var ambulanceIcon = L.divIcon({
-      className: '',
-      html: '<div class="ambulance-badge">🚑</div>',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
-    });
+    function initMap() {
+      if (map) return;
+      if (typeof L === 'undefined') {
+        setTimeout(initMap, 100);
+        return;
+      }
+      var mapEl = document.getElementById('map');
+      if (!mapEl) return;
 
-    var victimIcon = L.divIcon({
-      className: '',
-      html: '<div class="victim-marker-wrap"><div class="victim-ping"></div><div class="victim-core"></div></div>',
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
-    });
+      try {
+        map = L.map('map', {
+          center: [21.0285, 105.8542],
+          zoom: 15,
+          zoomControl: false,
+          attributionControl: false
+        });
 
-    var hospitalIcon = L.divIcon({
-      className: '',
-      html: '<div class="hospital-badge">🏥</div>',
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
-    });
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19
+        }).addTo(map);
+
+        initIcons();
+        window.mapReady = true;
+
+        if (window._pendingData) {
+          window.updateEmergencyMap(window._pendingData);
+          window._pendingData = null;
+        }
+      } catch (err) {
+        console.error('Error initializing map:', err);
+        setTimeout(initMap, 300);
+      }
+    }
 
     window.updateEmergencyMap = function(data) {
-      if (!map) return;
+      if (!map) {
+        window._pendingData = data;
+        return;
+      }
+      initIcons();
 
       var validTarget = data.validTarget;
       var validAmbulance = data.validAmbulance;
@@ -177,7 +210,7 @@ const LEAFLET_HTML = `
           targetMarker = L.marker(targetLatLng, { icon: iconToUse, zIndexOffset: 100 }).addTo(map);
         } else {
           targetMarker.setLatLng(targetLatLng);
-          targetMarker.setIcon(iconToUse);
+          if (iconToUse) targetMarker.setIcon(iconToUse);
         }
 
         if (!isHospital) {
@@ -208,6 +241,7 @@ const LEAFLET_HTML = `
           ambulanceMarker = L.marker(ambLatLng, { icon: ambulanceIcon, zIndexOffset: 200 }).addTo(map);
         } else {
           ambulanceMarker.setLatLng(ambLatLng);
+          if (ambulanceIcon) ambulanceMarker.setIcon(ambulanceIcon);
         }
       } else if (ambulanceMarker) {
         map.removeLayer(ambulanceMarker);
@@ -247,6 +281,8 @@ const LEAFLET_HTML = `
         } else if (allPoints.length === 1) {
           map.setView(allPoints[0], 15);
           hasCenteredInitially = true;
+        } else {
+          map.setView([21.0285, 105.8542], 14);
         }
       } else {
         if (followAmbulance && validAmbulance) {
@@ -255,8 +291,12 @@ const LEAFLET_HTML = `
       }
     };
 
-    document.addEventListener('DOMContentLoaded', initMap);
-    setTimeout(function() { if (!map) initMap(); }, 300);
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      initMap();
+    } else {
+      document.addEventListener('DOMContentLoaded', initMap);
+    }
+    setTimeout(initMap, 200);
   </script>
 </body>
 </html>

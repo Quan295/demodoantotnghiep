@@ -65,48 +65,60 @@ function AutoBounds({ points }: { points: [number, number][] }) {
 }
 
 export interface AmbulanceMapProps {
-  victimLocation: LatLng;
+  victimLocation?: LatLng;
   ambulanceLocation?: LatLng;
+  hospitalLocation?: LatLng;
+  destinationType?: 'SCENE' | 'HOSPITAL';
+  followAmbulance?: boolean;
   route?: LatLng[];
   style?: React.CSSProperties;
   className?: string;
 }
 
+const DEFAULT_CENTER: [number, number] = [21.0285, 105.8542]; // Hà Nội trung tâm
+
 export default function AmbulanceMap({
   victimLocation,
   ambulanceLocation,
+  hospitalLocation,
+  destinationType = 'SCENE',
   route,
   style,
   className,
 }: AmbulanceMapProps) {
+  const targetLocation = destinationType === 'HOSPITAL' && hospitalLocation ? hospitalLocation : victimLocation;
+
   const center: [number, number] = useMemo(() => {
-    if (ambulanceLocation) {
+    if (targetLocation && ambulanceLocation) {
       return [
-        (victimLocation.lat + ambulanceLocation.lat) / 2,
-        (victimLocation.lng + ambulanceLocation.lng) / 2,
+        (targetLocation.lat + ambulanceLocation.lat) / 2,
+        (targetLocation.lng + ambulanceLocation.lng) / 2,
       ];
     }
-    return [victimLocation.lat, victimLocation.lng];
-  }, [victimLocation, ambulanceLocation]);
+    if (targetLocation) return [targetLocation.lat, targetLocation.lng];
+    if (ambulanceLocation) return [ambulanceLocation.lat, ambulanceLocation.lng];
+    return DEFAULT_CENTER;
+  }, [targetLocation, ambulanceLocation]);
 
   const allPoints: [number, number][] = useMemo(() => {
-    const pts: [number, number][] = [[victimLocation.lat, victimLocation.lng]];
+    const pts: [number, number][] = [];
+    if (targetLocation) pts.push([targetLocation.lat, targetLocation.lng]);
     if (ambulanceLocation) pts.push([ambulanceLocation.lat, ambulanceLocation.lng]);
     return pts;
-  }, [victimLocation, ambulanceLocation]);
+  }, [targetLocation, ambulanceLocation]);
 
   const polylineCoords: [number, number][] = useMemo(() => {
     if (route && route.length > 0) {
       return route.map(p => [p.lat, p.lng]);
     }
-    if (ambulanceLocation) {
+    if (ambulanceLocation && targetLocation) {
       return [
         [ambulanceLocation.lat, ambulanceLocation.lng],
-        [victimLocation.lat, victimLocation.lng],
+        [targetLocation.lat, targetLocation.lng],
       ];
     }
     return [];
-  }, [route, ambulanceLocation, victimLocation]);
+  }, [route, ambulanceLocation, targetLocation]);
 
   // Standard OpenStreetMap tiles with dark CSS filter (no API key required, zero watermarks)
   const tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -130,18 +142,22 @@ export default function AmbulanceMap({
           attribution={tileAttribution}
           maxZoom={19}
         />
-        <AutoBounds points={allPoints} />
+        {allPoints.length > 0 && <AutoBounds points={allPoints} />}
 
-        {/* Victim marker + radius circle */}
-        <Marker
-          position={[victimLocation.lat, victimLocation.lng]}
-          icon={victimIcon}
-        />
-        <Circle
-          center={[victimLocation.lat, victimLocation.lng]}
-          radius={80}
-          pathOptions={{ color: '#F04438', fillColor: '#F04438', fillOpacity: 0.08, weight: 2, dashArray: '4 6' }}
-        />
+        {/* Target marker (Victim / Scene) */}
+        {targetLocation && (
+          <>
+            <Marker
+              position={[targetLocation.lat, targetLocation.lng]}
+              icon={victimIcon}
+            />
+            <Circle
+              center={[targetLocation.lat, targetLocation.lng]}
+              radius={80}
+              pathOptions={{ color: '#F04438', fillColor: '#F04438', fillOpacity: 0.08, weight: 2, dashArray: '4 6' }}
+            />
+          </>
+        )}
 
         {/* Ambulance marker + route */}
         {ambulanceLocation && (

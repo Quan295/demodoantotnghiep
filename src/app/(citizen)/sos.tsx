@@ -763,14 +763,31 @@ export default function SOSScreen() {
                     <TouchableOpacity
                       style={styles.trackBtn}
                       onPress={() => {
-                        const lat = item.latitude?.toString() || item.location?.latitude?.toString();
-                        const lng = item.longitude?.toString() || item.location?.longitude?.toString();
+                        const rawId = item.callId ?? (item as any).emergencyCallId ?? item.id;
+                        const callIdStr = String(rawId).replace(/\D/g, '') || String(rawId);
+                        const lat = (
+                          item.latitude ??
+                          item.location?.latitude ??
+                          item.location?.lat ??
+                          (item as any).incidentLatitude ??
+                          (item as any).patientLatitude ??
+                          location?.coords?.latitude
+                        )?.toString();
+                        const lng = (
+                          item.longitude ??
+                          item.location?.longitude ??
+                          item.location?.lng ??
+                          (item as any).incidentLongitude ??
+                          (item as any).patientLongitude ??
+                          location?.coords?.longitude
+                        )?.toString();
+
                         router.push({
                            pathname: '/(citizen)/tracking',
                            params: {
                              ...(lat ? { lat } : {}),
                              ...(lng ? { lng } : {}),
-                             id: String(item.id),
+                             id: callIdStr,
                            },
                          });
                        }}
@@ -983,10 +1000,31 @@ export default function SOSScreen() {
                       style={styles.modalTrackBtn}
                       onPress={() => {
                         setShowStatusModal(false);
+                        const rawId = selectedCallDetails?.callId ?? (selectedCallDetails as any)?.emergencyCallId ?? selectedCallId;
+                        const callIdStr = String(rawId).replace(/\D/g, '') || String(rawId);
+                        const lat = (
+                          selectedCallDetails?.latitude ??
+                          selectedCallDetails?.location?.latitude ??
+                          selectedCallDetails?.location?.lat ??
+                          (selectedCallDetails as any)?.incidentLatitude ??
+                          (selectedCallDetails as any)?.patientLatitude ??
+                          location?.coords?.latitude
+                        )?.toString();
+                        const lng = (
+                          selectedCallDetails?.longitude ??
+                          selectedCallDetails?.location?.longitude ??
+                          selectedCallDetails?.location?.lng ??
+                          (selectedCallDetails as any)?.incidentLongitude ??
+                          (selectedCallDetails as any)?.patientLongitude ??
+                          location?.coords?.longitude
+                        )?.toString();
+
                         router.push({
                           pathname: '/(citizen)/tracking',
                           params: {
-                            id: String(selectedCallId),
+                            id: callIdStr,
+                            ...(lat ? { lat } : {}),
+                            ...(lng ? { lng } : {}),
                           },
                         });
                       }}

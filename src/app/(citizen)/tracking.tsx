@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { CallStatusResponse, CallTrackingResponse, EmergencyCall, LatLng } from '@/types';
 import { resolveEmergencyStatus } from '@/utils/statusHelper';
@@ -34,7 +35,9 @@ export default function TrackingScreen() {
 
   const paramLat = params.lat ? parseFloat(params.lat as string) : undefined;
   const paramLng = params.lng ? parseFloat(params.lng as string) : undefined;
-  const callId = params.id as string | undefined;
+  const rawCallId = params.id as string | undefined;
+  const digitsOnly = rawCallId ? String(rawCallId).replace(/\D/g, '') : '';
+  const callId = digitsOnly || rawCallId;
 
   const [status, setStatus] = useState<CaseStatus>('PENDING');
   const [eta, setEta] = useState<number>(4);
@@ -46,9 +49,26 @@ export default function TrackingScreen() {
   const [trackingData, setTrackingData] = useState<CallTrackingResponse | null>(null);
   const [loadingInitial, setLoadingInitial] = useState<boolean>(true);
   const [showInvoiceModal, setShowInvoiceModal] = useState<boolean>(false);
+  const [devicePos, setDevicePos] = useState<LatLng | null>(null);
 
   const slideAnim = useRef(new Animated.Value(400)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Lấy GPS dự phòng từ chính thiết bị nếu cuộc gọi cũ không lưu GPS
+  useEffect(() => {
+    let unmounted = false;
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+      .then(pos => {
+        if (!unmounted && pos?.coords?.latitude && pos?.coords?.longitude) {
+          setDevicePos({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => { unmounted = true; };
+  }, []);
 
   useEffect(() => {
     Animated.loop(
@@ -88,6 +108,13 @@ export default function TrackingScreen() {
         }
         if (statusRes.status === 'fulfilled' && statusRes.value) {
           setCallStatusData(statusRes.value);
+          // Trích xuất vị trí xe cứu thương nếu assignedUnit có sẵn
+          const unit = statusRes.value.assignedUnit as any;
+          const uLat = unit?.latitude ?? unit?.lat ?? unit?.currentLocation?.lat;
+          const uLng = unit?.longitude ?? unit?.lng ?? unit?.currentLocation?.lng;
+          if (typeof uLat === 'number' && typeof uLng === 'number' && !isNaN(uLat) && !isNaN(uLng)) {
+            setAmbulancePos(prev => prev ?? { lat: uLat, lng: uLng });
+          }
         }
       } catch (e) {
         console.warn('[CitizenTracking] Initial call info load error:', e);
@@ -218,24 +245,39 @@ export default function TrackingScreen() {
     });
   };
 
-  // Lấy tọa độ hiện trường ưu tiên từ DB (trackingData, callDetail, params)
+  // Lấy tọa độ hiện trường ưu tiên từ DB (trackingData, callDetail, params, devicePos, fallback)
   const trackingAny = trackingData as any;
   const resolvedVictimLat =
     (typeof trackingAny?.incidentLatitude === 'number' && !isNaN(trackingAny.incidentLatitude) ? trackingAny.incidentLatitude : null) ??
     (typeof callDetail?.latitude === 'number' && !isNaN(callDetail.latitude) ? callDetail.latitude : null) ??
     (typeof (callDetail as any)?.location?.latitude === 'number' ? (callDetail as any).location.latitude : null) ??
-    (typeof paramLat === 'number' && !isNaN(paramLat) ? paramLat : null);
+    (typeof (callDetail as any)?.location?.lat === 'number' ? (callDetail as any).location.lat : null) ??
+    (typeof (callDetail as any)?.incidentLatitude === 'number' ? (callDetail as any).incidentLatitude : null) ??
+    (typeof (callDetail as any)?.patientLatitude === 'number' ? (callDetail as any).patientLatitude : null) ??
+    (typeof (callDetail as any)?.lat === 'number' ? (callDetail as any).lat : null) ??
+    (typeof (callStatusData as any)?.incidentLatitude === 'number' ? (callStatusData as any).incidentLatitude : null) ??
+    (typeof (callStatusData as any)?.location?.latitude === 'number' ? (callStatusData as any).location.latitude : null) ??
+    (typeof (callStatusData as any)?.location?.lat === 'number' ? (callStatusData as any).location.lat : null) ??
+    (typeof paramLat === 'number' && !isNaN(paramLat) ? paramLat : null) ??
+    devicePos?.lat ??
+    21.0285;
 
   const resolvedVictimLng =
     (typeof trackingAny?.incidentLongitude === 'number' && !isNaN(trackingAny.incidentLongitude) ? trackingAny.incidentLongitude : null) ??
     (typeof callDetail?.longitude === 'number' && !isNaN(callDetail.longitude) ? callDetail.longitude : null) ??
     (typeof (callDetail as any)?.location?.longitude === 'number' ? (callDetail as any).location.longitude : null) ??
-    (typeof paramLng === 'number' && !isNaN(paramLng) ? paramLng : null);
+    (typeof (callDetail as any)?.location?.lng === 'number' ? (callDetail as any).location.lng : null) ??
+    (typeof (callDetail as any)?.incidentLongitude === 'number' ? (callDetail as any).incidentLongitude : null) ??
+    (typeof (callDetail as any)?.patientLongitude === 'number' ? (callDetail as any).patientLongitude : null) ??
+    (typeof (callDetail as any)?.lng === 'number' ? (callDetail as any).lng : null) ??
+    (typeof (callStatusData as any)?.incidentLongitude === 'number' ? (callStatusData as any).incidentLongitude : null) ??
+    (typeof (callStatusData as any)?.location?.longitude === 'number' ? (callStatusData as any).location.longitude : null) ??
+    (typeof (callStatusData as any)?.location?.lng === 'number' ? (callStatusData as any).location.lng : null) ??
+    (typeof paramLng === 'number' && !isNaN(paramLng) ? paramLng : null) ??
+    devicePos?.lng ??
+    105.8542;
 
-  const victimLocation: LatLng | undefined =
-    typeof resolvedVictimLat === 'number' && typeof resolvedVictimLng === 'number'
-      ? { lat: resolvedVictimLat, lng: resolvedVictimLng }
-      : undefined;
+  const victimLocation: LatLng = { lat: resolvedVictimLat, lng: resolvedVictimLng };
 
   const getStatusColor = (s: 'STEP_1' | 'STEP_2' | 'STEP_3' | 'STEP_4') => {
     switch (s) {
