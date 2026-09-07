@@ -19,6 +19,7 @@ interface PaymentInvoiceModalProps {
   visible: boolean;
   onClose: () => void;
   callId?: string | number | null;
+  initialPayment?: PaymentDetailResponse | null;
   onPaymentSuccess?: (invoice: PaymentInvoice) => void;
 }
 
@@ -26,17 +27,25 @@ export default function PaymentInvoiceModal({
   visible,
   onClose,
   callId,
+  initialPayment,
   onPaymentSuccess,
 }: PaymentInvoiceModalProps) {
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>('VIETQR');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isLoadingPayment, setIsLoadingPayment] = useState<boolean>(false);
-  const [realPayment, setRealPayment] = useState<PaymentDetailResponse | null>(null);
+  const [realPayment, setRealPayment] = useState<PaymentDetailResponse | null>(initialPayment || null);
+
+  const effectiveCallId = callId ?? initialPayment?.callId;
 
   // Fetch real payment from backend when opened (No silent mock fallback)
   useEffect(() => {
-    if (!visible || !callId) {
+    if (!visible || !effectiveCallId) {
       setRealPayment(null);
+      return;
+    }
+
+    if (initialPayment && (initialPayment.callId === effectiveCallId || initialPayment.paymentId)) {
+      setRealPayment(initialPayment);
       return;
     }
 
@@ -44,7 +53,7 @@ export default function PaymentInvoiceModal({
     (async () => {
       try {
         setIsLoadingPayment(true);
-        const res = await api.getReporterPaymentByCallId(callId);
+        const res = await api.getReporterPaymentByCallId(effectiveCallId);
         if (isMounted) {
           setRealPayment(res && res.paymentId ? res : null);
           setIsLoadingPayment(false);
@@ -61,9 +70,9 @@ export default function PaymentInvoiceModal({
     return () => {
       isMounted = false;
     };
-  }, [visible, callId]);
+  }, [visible, effectiveCallId, initialPayment]);
 
-  if (!callId) return null;
+  if (!effectiveCallId) return null;
 
   // BE Payment contract: SUCCESS (hoặc PAID cho tương thích ngược)
   const isPaid = realPayment?.status === 'SUCCESS' || realPayment?.status === 'PAID';

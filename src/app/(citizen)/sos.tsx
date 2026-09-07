@@ -27,10 +27,11 @@ import {
 import * as Location from 'expo-location';
 import { api } from '@/services/api';
 import { globalConfig } from '@/services/config';
-import { CallStatusResponse, EmergencyCall } from '@/types';
+import { CallStatusResponse, EmergencyCall, PaymentDetailResponse } from '@/types';
 import { resolveEmergencyStatus } from '@/utils/statusHelper';
 import PaymentInvoiceModal from '@/components/PaymentInvoiceModal';
 import { EmergencyRecorder, RecorderStatus } from '@/components/EmergencyRecorder';
+import { connectReporterPaymentSocket, PaymentReadyEvent } from '@/services/reporterPaymentSocket';
 
 const { width } = Dimensions.get('window');
 
@@ -76,6 +77,8 @@ export default function SOSScreen() {
   const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
   const [selectedInvoiceCallId, setSelectedInvoiceCallId] = useState<string | number | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState<boolean>(false);
+  const [paymentReady, setPaymentReady] = useState<PaymentReadyEvent | null>(null);
+  const [selectedPaymentDetail, setSelectedPaymentDetail] = useState<PaymentDetailResponse | null>(null);
 
   // Animations
   const pulseSOSAnim = useRef(new Animated.Value(1)).current;
@@ -317,6 +320,45 @@ export default function SOSScreen() {
     }
   }, [activeTab, fetchMyCalls]);
 
+  // 3b. Realtime WebSocket STOMP: Lắng nghe PAYMENT_READY từ /topic/reporter/{userId}
+  useEffect(() => {
+    const disconnect = connectReporterPaymentSocket((event) => {
+      console.log('[SOSScreen] Nhận sự kiện PAYMENT_READY qua STOMP:', event);
+      setPaymentReady(event);
+      fetchMyCalls(true);
+
+      Alert.alert(
+        'Ca cấp cứu đã hoàn thành 🎉',
+        `${event.message || 'Ca cấp cứu đã hoàn thành. Vui lòng thanh toán chi phí dịch vụ.'}\n\nTổng chi phí: ${event.totalAmount ? Number(event.totalAmount).toLocaleString('vi-VN') : '0'} đ`,
+        [
+          {
+            text: 'Để sau',
+            style: 'cancel',
+          },
+          {
+            text: 'Xem hóa đơn',
+            onPress: async () => {
+              try {
+                const payment = await api.getReporterPaymentByCallId(event.callId);
+                if (payment) {
+                  setSelectedPaymentDetail(payment);
+                }
+              } catch (err) {
+                console.warn('[SOSScreen] Không thể lấy trước chi tiết hóa đơn:', err);
+              }
+              setSelectedInvoiceCallId(event.callId);
+              setShowInvoiceModal(true);
+            },
+          },
+        ]
+      );
+    });
+
+    return () => {
+      disconnect();
+    };
+  }, [fetchMyCalls]);
+
   // 4. API: GET /calls/{id}/status & GET /calls/{id} (Chi tiết & Trạng thái cuộc gọi)
   const handleOpenCallStatusModal = async (callId: string | number) => {
     setSelectedCallId(callId);
@@ -411,6 +453,54 @@ export default function SOSScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* REALTIME PAYMENT READY NOTIFICATION BANNER */}
+          {paymentReady && (
+            <View style={styles.paymentBannerContainer}>
+              <LinearGradient
+                colors={['rgba(16, 185, 129, 0.25)', 'rgba(5, 150, 105, 0.15)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.paymentBannerGradient}
+              >
+                <View style={styles.paymentBannerIconBox}>
+                  <MaterialCommunityIcons name="receipt-text-check" size={22} color="#34D399" />
+                </View>
+                <View style={styles.paymentBannerContent}>
+                  <View style={styles.paymentBannerHeaderRow}>
+                    <Text style={styles.paymentBannerTitle}>HÓA ĐƠN ĐÃ SẴN SÀNG</Text>
+                    <View style={styles.paymentBannerBadge}>
+                      <Text style={styles.paymentBannerBadgeText}>Chờ thanh toán</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.paymentBannerSubtitle} numberOfLines={1}>
+                    Ca #{paymentReady.callId} • {Number(paymentReady.totalAmount || 0).toLocaleString('vi-VN')} đ
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.paymentBannerActionBtn}
+                  onPress={async () => {
+                    try {
+                      const payment = await api.getReporterPaymentByCallId(paymentReady.callId);
+                      if (payment) setSelectedPaymentDetail(payment);
+                    } catch {}
+                    setSelectedInvoiceCallId(paymentReady.callId);
+                    setShowInvoiceModal(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.paymentBannerActionText}>Xem</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.paymentBannerDismissBtn}
+                  onPress={() => setPaymentReady(null)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close" size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              </LinearGradient>
+            </View>
+          )}
 
           {/* TAB BAR NAVIGATION */}
           <View style={styles.tabBar}>
@@ -925,8 +1015,16 @@ export default function SOSScreen() {
           {/* Payment & Invoice Modal */}
           <PaymentInvoiceModal
             visible={showInvoiceModal}
-            onClose={() => setShowInvoiceModal(false)}
+            onClose={() => {
+              setShowInvoiceModal(false);
+              setSelectedPaymentDetail(null);
+            }}
             callId={selectedInvoiceCallId}
+            initialPayment={selectedPaymentDetail}
+            onPaymentSuccess={() => {
+              setPaymentReady(null);
+              fetchMyCalls(true);
+            }}
           />
 
         </SafeAreaView>
@@ -1682,5 +1780,90 @@ const styles = StyleSheet.create({
     color: '#34D399',
     fontSize: 10,
     fontWeight: '800',
+  },
+  paymentBannerContainer: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1.2,
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  paymentBannerGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  paymentBannerIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.3)',
+  },
+  paymentBannerContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  paymentBannerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  paymentBannerTitle: {
+    color: '#34D399',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  paymentBannerBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 8,
+    borderWidth: 0.8,
+    borderColor: 'rgba(245, 158, 11, 0.4)',
+  },
+  paymentBannerBadgeText: {
+    color: '#FBBF24',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  paymentBannerSubtitle: {
+    color: '#F1F5F9',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  paymentBannerActionBtn: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    marginRight: 6,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  paymentBannerActionText: {
+    color: '#022C22',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  paymentBannerDismissBtn: {
+    padding: 4,
   },
 });
