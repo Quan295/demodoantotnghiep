@@ -56,6 +56,8 @@ export default function SOSScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [description, setDescription] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const submittingRef = useRef<boolean>(false);
+  const sosKeyRef = useRef<string | null>(null);
 
   // Recorder State
   const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>('idle');
@@ -277,9 +279,18 @@ export default function SOSScreen() {
 
   // Thực hiện gửi cuộc gọi SOS khi đã có tọa độ
   const sendSOSWithLocation = async (targetLocation: Location.LocationObject) => {
+    // Chặn double tap ngay lập tức
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setLoading(true);
+
+    // Chỉ tạo key nếu đây là một SOS mới (giữ nguyên key khi retry)
+    if (!sosKeyRef.current) {
+      sosKeyRef.current = `sos-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    }
+    const idempotencyKey = sosKeyRef.current;
+
     try {
-      const sosKey = `sos-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       const payload = {
         latitude: targetLocation.coords.latitude,
         longitude: targetLocation.coords.longitude,
@@ -290,9 +301,12 @@ export default function SOSScreen() {
         description: description.trim() || 'Yêu cầu cứu hộ khẩn cấp 1-chạm (Location SOS)',
       };
 
-      console.log('[SOSScreen] Calling POST /calls/sos with Idempotency-Key:', sosKey, payload);
-      const callResult = await api.createSosCall(payload, sosKey);
+      console.log('[SOSScreen] Calling POST /calls/sos with Idempotency-Key:', idempotencyKey, payload);
+      const callResult = await api.createSosCall(payload, idempotencyKey);
       setDescription('');
+
+      // Backend đã xác nhận thành công -> reset key cho lượt gọi tiếp theo
+      sosKeyRef.current = null;
 
       const callId =
         (callResult as any)?.callId ??
@@ -325,14 +339,22 @@ export default function SOSScreen() {
         ]
       );
     } catch (error: any) {
+      // QUAN TRỌNG:
+      // Không tạo key mới khi retry.
+      // sosKeyRef.current vẫn giữ nguyên để backend nhận diện cùng 1 yêu cầu.
+      console.warn('[SOSScreen] Gửi SOS thất bại:', error);
       Alert.alert('Gửi SOS thất bại', error.message || 'Vui lòng kiểm tra kết nối và thử lại');
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
 
   // 1. API: POST /calls/sos (Gửi định vị cấp cứu 1-chạm)
   const handleSOS = async () => {
+    // Chặn double tap ngay lập tức
+    if (submittingRef.current) return;
+
     let activeLocation = location;
     if (!activeLocation?.coords?.latitude || !activeLocation?.coords?.longitude) {
       // Tự động định vị lại 1 lần nữa trước khi hỏi người dùng
@@ -839,7 +861,7 @@ export default function SOSScreen() {
                     <TouchableOpacity
                       style={styles.bigSOSButton}
                       onPress={handleSOS}
-                      disabled={loading}
+                      disabled={loading || submittingRef.current}
                       activeOpacity={0.85}
                     >
                       <LinearGradient
