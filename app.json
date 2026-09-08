@@ -12,6 +12,11 @@
     },
     "android": {
       "package": "com.demodoantotnghiep.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,6 +48,12 @@
         {
           "microphonePermission": "Cho phép ứng dụng sử dụng microphone để ghi âm cuộc gọi cấp cứu",
           "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Cho phép ứng dụng sử dụng vị trí để xác định tọa độ hiện trường cấp cứu."
         }
       ]
     ],

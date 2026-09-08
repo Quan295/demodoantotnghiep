@@ -5,6 +5,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -117,7 +118,7 @@ export default function SOSScreen() {
   }, []);
 
   // Fetch Current Device GPS Location with Multi-tier Fallback
-  const getCurrentLocation = useCallback(async (): Promise<Location.LocationObject | null> => {
+  const getCurrentLocation = useCallback(async (isManual = false): Promise<Location.LocationObject | null> => {
     setLocationLoading(true);
     setLocationError(null);
 
@@ -148,6 +149,26 @@ export default function SOSScreen() {
         const msg = 'Chưa cấp quyền vị trí GPS';
         setLocationError(msg);
         setLocationLoading(false);
+        if (isManual) {
+          Alert.alert(
+            'Chưa cấp quyền Vị trí cho Ứng dụng',
+            'Bạn đã bật định vị trên máy nhưng Ứng dụng chưa được cấp quyền truy cập Vị trí trong Cài đặt (đang bị để "Không cho phép").\n\nVui lòng bấm "Mở Cài Đặt" -> chọn "Quyền" -> "Vị trí" -> chọn "Cho phép khi dùng ứng dụng".',
+            [
+              {
+                text: 'Mở Cài Đặt',
+                onPress: () => {
+                  if (Platform.OS === 'ios') Linking.openURL('app-settings:');
+                  else Linking.openSettings();
+                },
+              },
+              {
+                text: 'Dùng vị trí mặc định',
+                onPress: () => applyDefaultLocation(),
+              },
+              { text: 'Đóng', style: 'cancel' },
+            ]
+          );
+        }
         return null;
       }
     } catch (errPerm) {
@@ -315,7 +336,7 @@ export default function SOSScreen() {
     let activeLocation = location;
     if (!activeLocation?.coords?.latitude || !activeLocation?.coords?.longitude) {
       // Tự động định vị lại 1 lần nữa trước khi hỏi người dùng
-      const refreshedLoc = await getCurrentLocation();
+      const refreshedLoc = await getCurrentLocation(true);
       if (refreshedLoc?.coords?.latitude && refreshedLoc?.coords?.longitude) {
         activeLocation = refreshedLoc;
       } else {
@@ -333,7 +354,7 @@ export default function SOSScreen() {
             },
             {
               text: 'Thử định vị lại',
-              onPress: () => getCurrentLocation(),
+              onPress: () => getCurrentLocation(true),
             },
             { text: 'Hủy', style: 'cancel' },
           ]
@@ -440,7 +461,7 @@ export default function SOSScreen() {
 
     let activeLocation = location;
     if (!activeLocation?.coords?.latitude || !activeLocation?.coords?.longitude) {
-      const refreshedLoc = await getCurrentLocation();
+      const refreshedLoc = await getCurrentLocation(true);
       if (refreshedLoc?.coords?.latitude && refreshedLoc?.coords?.longitude) {
         activeLocation = refreshedLoc;
       } else {
@@ -458,7 +479,7 @@ export default function SOSScreen() {
             },
             {
               text: 'Thử định vị lại',
-              onPress: () => getCurrentLocation(),
+              onPress: () => getCurrentLocation(true),
             },
             { text: 'Hủy', style: 'cancel' },
           ]
@@ -761,7 +782,7 @@ export default function SOSScreen() {
                   </View>
                   <TouchableOpacity
                     style={styles.refreshLocBtn}
-                    onPress={() => getCurrentLocation()}
+                    onPress={() => getCurrentLocation(true)}
                     disabled={locationLoading}
                   >
                     {locationLoading ? (
