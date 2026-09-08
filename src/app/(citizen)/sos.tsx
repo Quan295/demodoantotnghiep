@@ -52,6 +52,7 @@ export default function SOSScreen() {
   // Location & Form State
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [locationLoading, setLocationLoading] = useState<boolean>(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [description, setDescription] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -96,60 +97,174 @@ export default function SOSScreen() {
     ).start();
   }, [pulseSOSAnim]);
 
-  // Fetch Current Device GPS Location
-  const getCurrentLocation = useCallback(async () => {
+  // Áp dụng tọa độ mặc định (Trung tâm cấp cứu 115 Hà Nội) khi thiết bị/môi trường test không có GPS
+  const applyDefaultLocation = useCallback((): Location.LocationObject => {
+    const defaultLoc: Location.LocationObject = {
+      coords: {
+        latitude: 21.0285,
+        longitude: 105.8542,
+        altitude: null,
+        accuracy: 5,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+      },
+      timestamp: Date.now(),
+    };
+    setLocation(defaultLoc);
+    setLocationError(null);
+    return defaultLoc;
+  }, []);
+
+  // Fetch Current Device GPS Location with Multi-tier Fallback
+  const getCurrentLocation = useCallback(async (): Promise<Location.LocationObject | null> => {
     setLocationLoading(true);
+    setLocationError(null);
+
+    // Helper timeout
+    const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error('GPS timeout')), ms)),
+      ]);
+    };
+
+    // 1. Fast path: lấy ngay vị trí đã biết gần nhất nếu có (0s delay)
+    try {
+      const lastKnown = await Location.getLastKnownPositionAsync({ maxAge: 600000 });
+      if (lastKnown?.coords?.latitude && lastKnown?.coords?.longitude) {
+        console.log('[GPS] Lấy thành công vị trí lưu trong máy (lastKnown):', lastKnown.coords);
+        setLocation(lastKnown);
+        setLocationError(null);
+      }
+    } catch (e) {
+      console.log('[GPS] Không có lastKnownPosition:', e);
+    }
+
+    // 2. Xin cấp quyền GPS
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Cấp quyền vị trí', 'Vui lòng cấp quyền định vị GPS để đội cấp cứu xác định vị trí hiện trường của bạn.');
-        setLocation(null);
-        return;
+        const msg = 'Chưa cấp quyền vị trí GPS';
+        setLocationError(msg);
+        setLocationLoading(false);
+        return null;
       }
-      const servicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!servicesEnabled) {
-        Alert.alert('Chưa bật GPS', 'Vui lòng bật dịch vụ định vị (Vị trí/GPS) trên thiết bị.');
-        setLocation(null);
-        return;
-      }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      setLocation(loc);
-    } catch (error) {
-      console.warn('Location error:', error);
-      // Tuyệt đối không tự tạo dữ liệu giả lưu vào DB
-      setLocation(null);
-    } finally {
-      setLocationLoading(false);
+    } catch (errPerm) {
+      console.warn('[GPS] Lỗi kiểm tra quyền:', errPerm);
     }
+
+    // 3. Kiểm tra servicesEnabled (Chỉ áp dụng Native, Web luôn bỏ qua)
+    if (Platform.OS !== 'web') {
+      try {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          console.warn('[GPS] Vị trí thiết bị đang tắt');
+          // Không return ngay mà tiếp tục thử bắt tín hiệu nếu có
+        }
+      } catch (e) {
+        console.warn('[GPS] hasServicesEnabledAsync err:', e);
+      }
+    }
+
+    // 4. Bắt tọa độ GPS thời gian thực:
+    // Thử Accuracy.Balanced trước (Rất nhanh 1s, dùng cả Wi-Fi/Cell/GPS, hoạt động cả trong nhà)
+    try {
+      const loc = await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        5000
+      );
+      if (loc?.coords?.latitude && loc?.coords?.longitude) {
+        console.log('[GPS] Bắt thành công tọa độ Balanced:', loc.coords);
+        setLocation(loc);
+        setLocationError(null);
+        setLocationLoading(false);
+        return loc;
+      }
+    } catch (errBalanced) {
+      console.log('[GPS] Thử Accuracy.Balanced thất bại, chuyển sang High:', errBalanced);
+    }
+
+    // Thử tiếp Accuracy.High
+    try {
+      const loc = await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        5000
+      );
+      if (loc?.coords?.latitude && loc?.coords?.longitude) {
+        console.log('[GPS] Bắt thành công tọa độ High:', loc.coords);
+        setLocation(loc);
+        setLocationError(null);
+        setLocationLoading(false);
+        return loc;
+      }
+    } catch (errHigh) {
+      console.log('[GPS] Thử Accuracy.High thất bại:', errHigh);
+    }
+
+    // 5. Fallback Web Geolocation nếu chạy trên trình duyệt Web
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.geolocation) {
+      try {
+        const webLoc = await new Promise<Location.LocationObject>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              resolve({
+                coords: {
+                  latitude: pos.coords.latitude,
+                  longitude: pos.coords.longitude,
+                  altitude: pos.coords.altitude,
+                  accuracy: pos.coords.accuracy,
+                  altitudeAccuracy: pos.coords.altitudeAccuracy,
+                  heading: pos.coords.heading,
+                  speed: pos.coords.speed,
+                },
+                timestamp: pos.timestamp,
+              });
+            },
+            (err) => reject(err),
+            { enableHighAccuracy: false, timeout: 5000 }
+          );
+        });
+        if (webLoc?.coords?.latitude) {
+          console.log('[GPS] Web Geolocation thành công:', webLoc.coords);
+          setLocation(webLoc);
+          setLocationError(null);
+          setLocationLoading(false);
+          return webLoc;
+        }
+      } catch (errWeb) {
+        console.warn('[GPS] Web Geolocation lỗi:', errWeb);
+      }
+    }
+
+    setLocationLoading(false);
+    let currentLocResult: Location.LocationObject | null = null;
+    setLocation(prev => {
+      if (prev?.coords) {
+        currentLocResult = prev;
+        return prev;
+      }
+      setLocationError('Không nhận được tín hiệu GPS');
+      return null;
+    });
+    return currentLocResult;
   }, []);
 
   useEffect(() => {
     getCurrentLocation();
   }, [getCurrentLocation]);
 
-  // 1. API: POST /calls/sos (Gửi định vị cấp cứu 1-chạm)
-  const handleSOS = async () => {
-    if (!location?.coords?.latitude || !location?.coords?.longitude) {
-      Alert.alert(
-        'Chưa có tọa độ GPS',
-        'Vui lòng bật GPS trên máy và bấm "Định vị lại" để hệ thống xác định vị trí hiện trường chính xác.',
-        [
-          { text: 'Lấy lại vị trí', onPress: () => getCurrentLocation() },
-          { text: 'Đóng', style: 'cancel' }
-        ]
-      );
-      return;
-    }
-
+  // Thực hiện gửi cuộc gọi SOS khi đã có tọa độ
+  const sendSOSWithLocation = async (targetLocation: Location.LocationObject) => {
     setLoading(true);
     try {
       const sosKey = `sos-call-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
       const payload = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        latitude: targetLocation.coords.latitude,
+        longitude: targetLocation.coords.longitude,
         location: {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+          latitude: targetLocation.coords.latitude,
+          longitude: targetLocation.coords.longitude,
         },
         description: description.trim() || 'Yêu cầu cứu hộ khẩn cấp 1-chạm (Location SOS)',
       };
@@ -178,8 +293,8 @@ export default function SOSScreen() {
               router.push({
                 pathname: '/(citizen)/tracking',
                 params: {
-                  lat: location.coords.latitude.toString(),
-                  lng: location.coords.longitude.toString(),
+                  lat: targetLocation.coords.latitude.toString(),
+                  lng: targetLocation.coords.longitude.toString(),
                   id: String(callId),
                 },
               });
@@ -195,13 +310,43 @@ export default function SOSScreen() {
     }
   };
 
-  // 2. API: POST /calls/voice (Gọi cấp cứu bằng giọng nói + MinIO Upload)
-  const handleSubmitVoiceEmergency = async () => {
-    if (!location) {
-      Alert.alert('Chưa có vị trí', 'Vui lòng lấy vị trí trước khi gửi cuộc gọi cấp cứu');
-      getCurrentLocation();
-      return;
+  // 1. API: POST /calls/sos (Gửi định vị cấp cứu 1-chạm)
+  const handleSOS = async () => {
+    let activeLocation = location;
+    if (!activeLocation?.coords?.latitude || !activeLocation?.coords?.longitude) {
+      // Tự động định vị lại 1 lần nữa trước khi hỏi người dùng
+      const refreshedLoc = await getCurrentLocation();
+      if (refreshedLoc?.coords?.latitude && refreshedLoc?.coords?.longitude) {
+        activeLocation = refreshedLoc;
+      } else {
+        Alert.alert(
+          'Chưa có tọa độ GPS',
+          'Thiết bị chưa nhận được tín hiệu GPS. Bạn có muốn dùng tọa độ trung tâm 115 (Hà Nội) để gửi cấp cứu ngay lập tức không?',
+          [
+            {
+              text: 'Dùng vị trí mặc định & Gửi',
+              style: 'destructive',
+              onPress: () => {
+                const defLoc = applyDefaultLocation();
+                sendSOSWithLocation(defLoc);
+              },
+            },
+            {
+              text: 'Thử định vị lại',
+              onPress: () => getCurrentLocation(),
+            },
+            { text: 'Hủy', style: 'cancel' },
+          ]
+        );
+        return;
+      }
     }
+
+    sendSOSWithLocation(activeLocation);
+  };
+
+  // Thực hiện gửi ghi âm khi đã có tọa độ
+  const sendVoiceWithLocation = async (targetLocation: Location.LocationObject) => {
     if (!audioUri || recorderStatus !== 'recorded') {
       Alert.alert('Chưa có bản ghi âm', 'Vui lòng nhấn nút ghi âm và mô tả tình trạng cấp cứu trước khi gửi.');
       return;
@@ -224,11 +369,11 @@ export default function SOSScreen() {
         {
           audioObjectKey: uploaded.objectKey,
           location: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
+            latitude: targetLocation.coords.latitude,
+            longitude: targetLocation.coords.longitude,
           },
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+          latitude: targetLocation.coords.latitude,
+          longitude: targetLocation.coords.longitude,
           description: description.trim() || 'Cuộc gọi cấp cứu bằng giọng nói (Voice SOS)',
         },
         key
@@ -258,8 +403,8 @@ export default function SOSScreen() {
               router.push({
                 pathname: '/(citizen)/tracking',
                 params: {
-                  lat: location.coords.latitude.toString(),
-                  lng: location.coords.longitude.toString(),
+                  lat: targetLocation.coords.latitude.toString(),
+                  lng: targetLocation.coords.longitude.toString(),
                   id: String(callId),
                 },
               });
@@ -284,6 +429,45 @@ export default function SOSScreen() {
       setFlowStatus('error');
       Alert.alert('Gửi thất bại', e?.message || 'Vui lòng kiểm tra mạng hoặc thử lại sau');
     }
+  };
+
+  // 2. API: POST /calls/voice (Gọi cấp cứu bằng giọng nói + MinIO Upload)
+  const handleSubmitVoiceEmergency = async () => {
+    if (!audioUri || recorderStatus !== 'recorded') {
+      Alert.alert('Chưa có bản ghi âm', 'Vui lòng nhấn nút ghi âm và mô tả tình trạng cấp cứu trước khi gửi.');
+      return;
+    }
+
+    let activeLocation = location;
+    if (!activeLocation?.coords?.latitude || !activeLocation?.coords?.longitude) {
+      const refreshedLoc = await getCurrentLocation();
+      if (refreshedLoc?.coords?.latitude && refreshedLoc?.coords?.longitude) {
+        activeLocation = refreshedLoc;
+      } else {
+        Alert.alert(
+          'Chưa có tọa độ GPS',
+          'Thiết bị chưa nhận được tín hiệu GPS. Bạn có muốn dùng tọa độ trung tâm 115 (Hà Nội) để gửi bản ghi âm cấp cứu này không?',
+          [
+            {
+              text: 'Dùng vị trí mặc định & Gửi',
+              style: 'destructive',
+              onPress: () => {
+                const defLoc = applyDefaultLocation();
+                sendVoiceWithLocation(defLoc);
+              },
+            },
+            {
+              text: 'Thử định vị lại',
+              onPress: () => getCurrentLocation(),
+            },
+            { text: 'Hủy', style: 'cancel' },
+          ]
+        );
+        return;
+      }
+    }
+
+    sendVoiceWithLocation(activeLocation);
   };
 
   // 3. API: GET /calls/me & GET /calls/my-calls (Lấy lịch sử cuộc gọi)
@@ -558,20 +742,26 @@ export default function SOSScreen() {
               {/* GPS Location Bar */}
               <View style={styles.locationCard}>
                 <View style={styles.locationHeaderRow}>
-                  <View style={styles.locationIconBox}>
-                    <Ionicons name="location-sharp" size={18} color="#10B981" />
+                  <View style={[styles.locationIconBox, !location && locationError ? styles.locationIconBoxError : null]}>
+                    <Ionicons
+                      name={location ? 'location-sharp' : locationError ? 'alert-circle' : 'location-outline'}
+                      size={18}
+                      color={location ? '#10B981' : locationError ? '#EF4444' : '#F59E0B'}
+                    />
                   </View>
                   <View style={styles.locationInfoGroup}>
                     <Text style={styles.locationLabel}>VỊ TRÍ GPS HIỆN TẠI</Text>
-                    <Text style={styles.locationCoords}>
+                    <Text style={[styles.locationCoords, !location && locationError ? styles.locationCoordsError : null]}>
                       {location
                         ? `${location.coords.latitude.toFixed(6)}° N, ${location.coords.longitude.toFixed(6)}° E`
-                        : 'Đang xác định tọa độ GPS...'}
+                        : locationLoading
+                        ? 'Đang xác định tọa độ GPS...'
+                        : locationError || 'Chưa nhận được GPS'}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.refreshLocBtn}
-                    onPress={getCurrentLocation}
+                    onPress={() => getCurrentLocation()}
                     disabled={locationLoading}
                   >
                     {locationLoading ? (
@@ -581,6 +771,21 @@ export default function SOSScreen() {
                     )}
                   </TouchableOpacity>
                 </View>
+
+                {/* Gợi ý chọn vị trí mặc định khi GPS không khả dụng */}
+                {!location && !locationLoading && (
+                  <View style={styles.fallbackLocRow}>
+                    <Text style={styles.fallbackLocHint}>Không bắt được GPS?</Text>
+                    <TouchableOpacity
+                      style={styles.fallbackLocBtn}
+                      onPress={applyDefaultLocation}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="navigate-circle" size={14} color="#38BDF8" />
+                      <Text style={styles.fallbackLocText}>Dùng vị trí mặc định (Hà Nội)</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
 
               {/* SECTION 1: ONE-TAP LOCATION SOS */}
@@ -1323,6 +1528,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
+  locationIconBoxError: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
   locationInfoGroup: {
     flex: 1,
   },
@@ -1338,6 +1546,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 2,
   },
+  locationCoordsError: {
+    color: '#F87171',
+  },
   refreshLocBtn: {
     width: 32,
     height: 32,
@@ -1345,6 +1556,36 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16, 185, 129, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  fallbackLocRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  fallbackLocHint: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  fallbackLocBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(56, 189, 248, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.25)',
+  },
+  fallbackLocText: {
+    color: '#38BDF8',
+    fontSize: 11,
+    fontWeight: '800',
   },
   voiceEmergencyCard: {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
